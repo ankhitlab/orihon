@@ -1,4 +1,5 @@
 import { AIError } from "./errors.js";
+import { record as jsonRecord } from "./json.js";
 import type {
   AILLMAdapter,
   AILLMCompletion,
@@ -43,10 +44,7 @@ function message(value: AILLMMessage): Record<string, unknown> {
 }
 
 function record(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AIError("EXECUTION_ERROR", path, "Model returned an invalid response", value);
-  }
-  return value as Record<string, unknown>;
+  return jsonRecord(value, path, "EXECUTION_ERROR", "Model returned an invalid response");
 }
 
 function parseArguments(value: unknown): unknown {

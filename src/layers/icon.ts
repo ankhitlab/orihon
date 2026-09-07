@@ -66,18 +66,49 @@ export class Icon {
   createIcon(oldIcon?: HTMLElement | null): HTMLImageElement {
     const image = oldIcon instanceof HTMLImageElement ? oldIcon : document.createElement("img");
     const retina = typeof devicePixelRatio !== "undefined" && devicePixelRatio > 1;
-    image.src = retina && this.options.iconRetinaUrl ? this.options.iconRetinaUrl : this.options.iconUrl;
+    const src = retina && this.options.iconRetinaUrl ? this.options.iconRetinaUrl : this.options.iconUrl;
+    const circle = this.options.shape === "circle";
     image.alt = this.options.alt;
-    image.className = `oh-marker-icon ${this.options.className}`.trim();
+    image.className = `oh-marker-icon${circle ? " oh-marker-icon-circle" : ""} ${this.options.className}`.trim();
     image.style.width = `${this.options.iconSize.x}px`;
     image.style.height = `${this.options.iconSize.y}px`;
     image.style.objectFit = this.options.fit;
-    image.style.borderRadius = this.options.shape === "circle" ? "50%" : "";
+    image.style.borderRadius = circle ? "50%" : "";
     image.style.border = this.options.borderWidth > 0
       ? `${this.options.borderWidth}px solid ${this.options.borderColor}`
       : "";
     image.style.boxSizing = "border-box";
+    // Circle chrome (background, shadow) lives in .oh-marker-icon-circle so hosts can
+    // restyle it; only overflow needs an inline rule to crop the cropped image.
+    image.style.overflow = circle ? "hidden" : "";
     image.draggable = false;
+    // The element can be recycled by a different Icon, so the fallback must follow the
+    // options in effect now, not the ones captured when the listener was first bound.
+    image.dataset.ohIconFallbackSize = String(Math.max(8, Math.round(this.options.iconSize.x)));
+    // img.src reads back absolute, so comparing it against a relative option would never
+    // match and would restart the load — and the error/fallback cycle — on every render.
+    const wanted = image.dataset.ohIconSrc;
+    const broken = image.dataset.ohIconFallback === "1";
+    const stalled = !broken && image.src !== "" && image.complete && image.naturalWidth === 0;
+    if (wanted !== src || stalled) {
+      image.dataset.ohIconSrc = src;
+      delete image.dataset.ohIconFallback;
+      image.src = src;
+    }
+    if (!image.dataset.ohIconErrorBound) {
+      image.dataset.ohIconErrorBound = "1";
+      image.addEventListener("error", () => {
+        if (image.dataset.ohIconFallback === "1") return;
+        image.dataset.ohIconFallback = "1";
+        const size = Math.max(8, Number(image.dataset.ohIconFallbackSize) || 8);
+        const r = size / 2 - 1;
+        image.src = `data:image/svg+xml,${encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+          `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="#0f766e" stroke="#ffffff" stroke-width="2"/>` +
+          `</svg>`
+        )}`;
+      });
+    }
     return image;
   }
 

@@ -9,6 +9,7 @@ import {
   ORIHON_AI_INTENT_SYSTEM_PROMPT,
   ORIHON_AI_SYSTEM_PROMPT,
   createAIAgentRuntime,
+  createAIAgentSession,
   createAILLMAgent,
   createAICommandEngine,
   createAIEngineTool,
@@ -25,6 +26,7 @@ import {
   type AIEngineCommand,
   type AIEngineToolSuccess,
   type AICreateVisitRouteIntent,
+  type AIShowPlacesIntent,
   type AIVisualizationStressIntent,
   type AIPointsReplaceCommand,
   type AIRoutePlanCommand,
@@ -37,6 +39,14 @@ const session = createAISession(map);
 const tool = createAITool(session);
 const engine = createAICommandEngine();
 const runtime = createAIAgentRuntime(engine);
+const agentSession = createAIAgentSession({
+  id: "map:demo",
+  actor: { userId: "1" },
+  engine,
+  capabilities: ["objects", "routes", "viewport", "selection"]
+});
+const browserBridge = agentSession.connect();
+void browserBridge.call("map.get_viewport");
 const intentTool = createAIIntentTool(runtime);
 const llmAdapter: AILLMAdapter = createOpenAICompatibleAdapter({
   baseURL: "http://127.0.0.1:1234/v1",
@@ -129,6 +139,16 @@ const visitIntent: AICreateVisitRouteIntent = {
   route: { optimize: "shortest", reactive: true }
 };
 intentTool.execute(visitIntent);
+const showPlacesIntent: AIShowPlacesIntent = {
+  goal: "show_places",
+  collection: "places",
+  points: [
+    { id: "a", position: { lat: 1, lng: 2 } },
+    { id: "b", position: { lat: 3, lng: 4 } }
+  ],
+  presentation: { clearMap: true }
+};
+intentTool.execute(showPlacesIntent);
 const stressIntent: AIVisualizationStressIntent = {
   goal: "create_visualization_stress_test",
   collection: "load-vehicles",
@@ -161,4 +181,4 @@ const invalidCallback: AISceneSpec = {
   }]
 };
 
-void [result, invalidCoordinateArray, invalidCallback, toolName, prompt, schemaTitle, engineSchemaTitle, pointsSchemaTitle, enginePrompt, intentPrompt, intentSchemaTitle, projection, handler, compactPointResult, compactRouteResult, llmAgent];
+void [result, invalidCoordinateArray, invalidCallback, toolName, prompt, schemaTitle, engineSchemaTitle, pointsSchemaTitle, enginePrompt, intentPrompt, intentSchemaTitle, projection, handler, compactPointResult, compactRouteResult, llmAgent, agentSession, browserBridge];

@@ -236,6 +236,11 @@ export interface ObjectManagerOptions {
   maxObjects?: number;
   /** Enable label/icon declutter in the viewport. */
   declutter?: boolean;
+  /**
+   * When true, DOM point markers are draggable and emit `move` on dragend.
+   * WebGL/canvas points stay non-draggable. Default false.
+   */
+  draggablePoints?: boolean;
   /** Active visualization strategy. Default "objects". */
   visualization?: ObjectVisualizationMode;
   visualizationByZoom?: ObjectVisualizationByZoom;
@@ -433,6 +438,14 @@ export interface ObjectManagerEventMap {
   error: { error: unknown; phase: "layout" };
   click: { objectId: ObjectId; object: ManagedObject | undefined; layer?: Marker; latlng?: LatLngLike; originalEvent?: MouseEvent | PointerEvent };
   hover: { objectId: ObjectId | null; object: ManagedObject | null | undefined; latlng?: LatLngLike | null; originalEvent?: MouseEvent | PointerEvent };
+  /** Fired when a DOM point marker finishes a user drag (`draggablePoints` or per-marker drag). */
+  move: {
+    objectId: ObjectId;
+    object: ManagedObject | undefined;
+    latlng: LatLngLike;
+    previousLatlng: LatLngLike;
+    layer?: Marker;
+  };
   clusterclick: { clusterId: string; objectIds: ObjectId[]; count: number; latlng: LatLngLike; originalEvent?: MouseEvent | PointerEvent };
 }
 
@@ -576,6 +589,7 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
       style: null,
       maxObjects: 0,
       declutter: false,
+      draggablePoints: false,
       visualization: "objects",
       visualizationByZoom: { heatmapUntil: 7, clustersUntil: 12 },
       search: null,
@@ -2288,6 +2302,7 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
       if (current) {
         current.setLatLng(record.position);
         this.#paintDomMarker(current, id, record.value);
+        this.#wireDomPointDrag(current, id);
         continue;
       }
       const title = record.value.properties?.title || "";
@@ -2316,8 +2331,40 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
       });
       created.addTo(this.map as Orihon);
       this.#paintDomMarker(created, id, record.value);
+      this.#wireDomPointDrag(created, id);
       this.markers.set(id, created);
     }
+  }
+
+  #wireDomPointDrag(marker: Marker, id: ObjectId): void {
+    if (!this.options.draggablePoints) {
+      if (marker.isDraggable()) marker.setDraggable(false);
+      return;
+    }
+    if (!marker.isDraggable()) marker.setDraggable(true);
+    if ((marker as Marker & { _ohOmDragWired?: boolean })._ohOmDragWired) return;
+    (marker as Marker & { _ohOmDragWired?: boolean })._ohOmDragWired = true;
+    marker.on("dragend", (event) => {
+      const latlng = event.latlng ?? marker.getLatLng();
+      const previous = this.#storedPoint(id);
+      const previousLatlng = previous
+        ? { lat: previous.lat, lng: previous.lng }
+        : { lat: latlng.lat, lng: latlng.lng };
+      const current = this.items.get(id);
+      if (current?.geometry?.type === "Point") {
+        this.update([{
+          ...current,
+          geometry: { type: "Point", coordinates: [latlng.lng, latlng.lat] }
+        }]);
+      }
+      this.emit("move", {
+        objectId: id,
+        object: this.items.get(id),
+        latlng,
+        previousLatlng,
+        layer: marker
+      });
+    });
   }
 
   #paintDomMarker(marker: Marker, id: ObjectId, object: ManagedObject): void {
@@ -2329,7 +2376,7 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
     el.classList.toggle("oh-om-alpha", cat === "alpha");
     el.classList.toggle("oh-om-beta", cat === "beta");
     el.classList.toggle("oh-om-gamma", cat === "gamma");
-    el.classList.toggle("oh-om-alert", Boolean(object.properties?.alert));
+    el.classList.toggle("oh-om-alert", Boolean(object.properties?.alert) || cat === "alert");
     el.classList.toggle("oh-om-selected", selected);
     el.classList.toggle("oh-om-hover", hovered);
     if (!this._styleResolver) return;
@@ -3220,7 +3267,7 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
       } else if (hovered || state.hovered) {
         color = PALETTE_HEX.hover;
         opacity = OBJECT_MANAGER_PALETTE.hover[3];
-      } else if (object.properties?.alert) {
+      } else if (object.properties?.alert || object.properties?.category === "alert") {
         color = PALETTE_HEX.alert;
         opacity = OBJECT_MANAGER_PALETTE.alert[3];
       } else {
@@ -3289,7 +3336,7 @@ export class ObjectManager<TEvents extends object = ObjectManagerEventMap> exten
   #legacyRgba(object: ManagedObject | undefined, id: ObjectId | null): readonly [number, number, number, number] {
     if (id != null && this._selectedId != null && id === this._selectedId) return OBJECT_MANAGER_PALETTE.selected;
     if (id != null && this._hoveredId != null && id === this._hoveredId) return OBJECT_MANAGER_PALETTE.hover;
-    if (object?.properties?.alert) return OBJECT_MANAGER_PALETTE.alert;
+    if (object?.properties?.alert || object?.properties?.category === "alert") return OBJECT_MANAGER_PALETTE.alert;
     const category = String(object?.properties?.category || "alpha");
     if (category === "beta") return OBJECT_MANAGER_PALETTE.beta;
     if (category === "gamma") return OBJECT_MANAGER_PALETTE.gamma;
@@ -4235,7 +4282,7 @@ function defaultObjectStyle(
   if (context.hovered || state.hovered) {
     return { fill: PALETTE_HEX.hover, fillOpacity: OBJECT_MANAGER_PALETTE.hover[3], size: DEFAULT_OBJECT_SIZE };
   }
-  if (object.properties?.alert) {
+  if (object.properties?.alert || object.properties?.category === "alert") {
     return { fill: PALETTE_HEX.alert, fillOpacity: OBJECT_MANAGER_PALETTE.alert[3], size: DEFAULT_OBJECT_SIZE };
   }
   const category = String(object.properties?.category || "alpha");

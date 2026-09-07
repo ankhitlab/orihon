@@ -4,6 +4,56 @@
 
 ## Unreleased
 
+- **Fixed — a fitted camera no longer snaps back on every later intent.** A `viewport.mode:"fit"`
+  hint is meant to expire with the revision that produced it, and `getSnapshot()` drops it
+  accordingly, but `executeTransaction` re-stamped the inherited hint with the new revision. Every
+  semantic intent after a fit therefore published a viewport that looked fresh, so each snapshot
+  resync re-fitted the map and discarded `scene.camera` — the map jumped back after the user had
+  panned away. A standalone `route.plan` revived an expired hint the same way. Both now carry the
+  hint forward only while it is still live, which is exactly the `points.replace + fit` → `route.plan`
+  sequence `create_visit_route` needs.
+
+- **Fixed — session-scoped SSE streamed the wrong engine.** `GET /sessions/:id/events` subscribed to
+  the handler's engine while `GET /sessions/:id/snapshot` read the session's own engine, so a host
+  using the documented `createSession` hook to bind a per-tenant engine handed clients a snapshot and
+  an event stream from two different maps; `AIMapProjection` then rejected every event as a revision
+  gap. Both endpoints now read `session.engine`. Passing `?sessionId=` to an adapter configured
+  without a `sessions` registry is refused instead of being answered from the unscoped engine.
+
+- **Fixed — `presentation.defaults.visual` was dropped unless it also carried a label.** Shared
+  marker chrome supplied only as `defaults.visual.image` produced no visual at all on points that
+  omitted their own, contradicting the guidance both AI system prompts give. The browser projection
+  compounded it by deciding AI styling from the raw point specs instead of the merged features, so a
+  defaults-supplied photo never reached the map.
+
+- **Fixed — `clearMap` left orphaned route polylines on the map.** The engine drops every route,
+  including those owned by other collections, but reported none of them; the projection removed only
+  routes of the mutated collection. The event now names every route it drops. Relatedly,
+  `{ op: "clear" }` without `ids` now resets the whole AI-owned map — layers, collections and routes
+  — instead of clearing routes while leaving their markers behind with stale `routeId`/`visitOrder`
+  annotations. Use `ids` for single layers and `objects.clear` for one collection.
+
+- **Fixed — agent-session leaks and non-atomic writes.** `observeBrowser()` never unwired the
+  per-marker `dragend` handlers it installed, so each re-observe stacked another listener and one
+  drag reported N moves; a stale stop handle could also clear the current observation, leaving it
+  unstoppable. `applyObjectMove` moved the marker before the engine accepted it, so a rejected update
+  left the map and the authoritative state disagreeing. Restoring a session no longer narrows its
+  capabilities: a session created without an allowlist now round-trips through
+  `createAISessionRecord` unrestricted instead of being pinned to the capabilities present at save
+  time. Snapshot restore validates `routes` and `viewport` rather than trusting the store.
+
+- **Fixed — plan steps compile by their declared operation.** `orihon.object-manager` dispatched on
+  the payload shape, so a step declaring `replace_points` silently executed `objects.update`. Tool
+  loops also survive a tool call with no arguments or a tool that returns nothing, which previously
+  aborted the whole run with `"undefined" is not valid JSON` from the shared deep-copy helper — now
+  centralised in one module instead of six near-identical copies.
+
+- **Fixed — recycled marker icons reloaded on every render.** `img.src` reads back absolute, so
+  comparing it against a relative `iconUrl` never matched and reassigned the source each time,
+  restarting the broken-image fallback cycle; the fallback also captured the first `Icon`'s size when
+  an element was reused. Circle chrome moved out of inline styles into `.oh-marker-icon-circle`,
+  which the inline rules had been shadowing.
+
 - **Added — semantic AI plans now execute through native Orihon model capabilities.**
   `AICapabilityRegistry` exposes ObjectManager and Route Model operations,
   `AIAgentRuntime` turns `create_visit_route` into a dependency plan, previews it on an isolated

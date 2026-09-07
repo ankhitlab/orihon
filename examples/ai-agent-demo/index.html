@@ -25,10 +25,11 @@
       <section>
         <span class="eyebrow">AGENT PLAYGROUND</span>
         <h2>Проверьте команды</h2>
-        <p class="intro">Карта обновляется через HTTP: <code>POST /api/orihon/places</code>, затем <code>POST /api/orihon/intents</code>. Ключ модели для этого не нужен. Кнопка «Через LLM» — отдельный серверный tool loop, если заданы <code>ORIHON_LLM_*</code>.</p>
+        <p class="intro">Agent-native maps: HTTP intents (<code>/places</code>, <code>/intents</code>) плюс браузерный <code>AIAgentSession</code> (<code>map.set_viewport</code> / selection / popup). Ключ модели не нужен. «Через LLM» — отдельный tool loop при <code>ORIHON_LLM_*</code>.</p>
       </section>
 
       <div class="suggestions" aria-label="Готовые запросы">
+        <button data-prompt="session">Сессия: маршрут + viewport + popup</button>
         <button data-prompt="deep">Создай маршрут через AI-модели</button>
         <button data-prompt="scene">Покажи Москву и маршрут</button>
         <button data-prompt="places">Покажи 15 мест компактно</button>
@@ -61,6 +62,8 @@
         <div><span>Объекты</span><strong id="object-count">0</strong></div>
         <div><span>Маршруты</span><strong id="route-count">0</strong></div>
         <div><span>Ревизия</span><strong id="revision">0</strong></div>
+        <div><span>Сессия</span><strong id="session-id">—</strong></div>
+        <div><span>Selection</span><strong id="selection">—</strong></div>
         <div><span>Последняя операция</span><strong id="last-op" data-testid="last-op">—</strong></div>
         <div><span>Модель</span><strong id="model-status">проверка…</strong></div>
         <div><span>LLM-токены</span><strong id="model-tokens">—</strong></div>

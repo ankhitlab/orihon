@@ -404,6 +404,7 @@ export type AIErrorCode =
   | "NOT_FOUND"
   | "EMPTY_SELECTION"
   | "REVISION_CONFLICT"
+  | "FORBIDDEN"
   | "EXECUTION_ERROR";
 
 export interface AIErrorDetails {
@@ -483,6 +484,18 @@ export interface AICreateVisitRouteIntent {
   };
 }
 
+/** Show place markers without planning a route. */
+export interface AIShowPlacesIntent {
+  goal: "show_places";
+  collection: string;
+  points: AIPointSpec[];
+  presentation?: {
+    clearMap?: boolean;
+    viewport?: AIPointViewport;
+    defaults?: AIPointDefaults;
+  };
+}
+
 /** Patch existing ObjectManager points by id without resending the whole collection. */
 export interface AIUpdatePointsIntent {
   goal: "update_points";
@@ -516,6 +529,7 @@ export interface AIVisualizationStressUpdateIntent {
 
 export type AIIntent =
   | AICreateVisitRouteIntent
+  | AIShowPlacesIntent
   | AIUpdatePointsIntent
   | AIVisualizationStressIntent
   | AIVisualizationStressUpdateIntent;

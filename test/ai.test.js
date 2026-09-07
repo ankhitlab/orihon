@@ -35,21 +35,30 @@ const [{ createMap }, {
   ORIHON_AI_POINTS_SYSTEM_PROMPT,
   ORIHON_AI_SYSTEM_PROMPT,
   createAIAgentRuntime,
+  createAIAgentSession,
+  createAIAgentSessionRegistry,
+  createAIAGUIAdapter,
   createAILLMAgent,
   createAICommandEngine,
+  createAICommandEngineFromSnapshot,
   createAIEngineTool,
   createAIHTTPHandler,
   createAIIntentTool,
   createAIPlaceSearchTool,
   createAIMapProjection,
+  createMemoryAISessionStore,
   createNominatimPlaceSearchProvider,
   executeAIPlaceSearch,
   createOpenAICompatibleAdapter,
+  createAISessionRecord,
   createAISession,
   createAITool,
+  installAIWebMCPTools,
+  listAISessionTools,
+  restoreAIAgentSession,
   validatePointsReplaceCommand,
   validateScene
-}, { Marker, Polyline }] = await Promise.all([
+}, { Icon, Marker, Polyline, marker }] = await Promise.all([
   import("orihon/easy"),
   import("orihon/ai"),
   import("orihon/standard")
@@ -826,6 +835,32 @@ test("semantic runtime discovers capabilities and commits a visit route atomical
   map.destroy();
 });
 
+test("semantic runtime commits show_places without a route", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  const intent = {
+    goal: "show_places",
+    collection: "lisbon",
+    points: [
+      { id: "belem", position: { lat: 38.6916, lng: -9.2159 }, title: "Belém Tower" },
+      { id: "jeronimos", position: { lat: 38.6978, lng: -9.2066 }, title: "Jerónimos" }
+    ],
+    presentation: { clearMap: true, viewport: { mode: "fit", padding: 24 } }
+  };
+  const planned = runtime.plan(intent);
+  assert.equal(planned.ok, true);
+  assert.equal(planned.value.steps.length, 1);
+  assert.equal(planned.value.steps[0].operation, "replace_points");
+  assert.equal(planned.value.goal, "show_places");
+
+  const committed = runtime.commit(planned.value);
+  assert.equal(committed.ok, true);
+  assert.equal(committed.value.revision, 1);
+  assert.deepEqual(committed.value.resources.map(({ kind, id }) => [kind, id]), [["collection", "lisbon"]]);
+  assert.equal(committed.value.context.routes.length, 0);
+  assert.equal(committed.value.context.collections[0].count, 2);
+});
+
 test("semantic intent tool exposes one compact model-native operation", () => {
   const runtime = createAIAgentRuntime(createAICommandEngine());
   const tool = createAIIntentTool(runtime);
@@ -1204,6 +1239,185 @@ test("semantic plan rollback is atomic and reactive routes follow collection cha
   assert.equal(engine.getSnapshot().routes, undefined);
 });
 
+test("agent session exposes local browser bridge stubs without persistence", async () => {
+  const engine = createAICommandEngine();
+  const session = createAIAgentSession({
+    id: "map:prague",
+    actor: { userId: "582" },
+    engine,
+    capabilities: ["objects", "routes", "viewport", "selection", "popup"]
+  });
+  assert.equal(session.revision, 0);
+  assert.deepEqual(session.describeCapabilities().map(({ id }) => id).sort(), [
+    "orihon.object-manager",
+    "orihon.route-model"
+  ]);
+
+  const bridge = session.connect();
+  assert.equal(session.connect(), bridge);
+  assert.ok(bridge.list().some(({ name }) => name === "map.set_viewport"));
+  assert.equal(bridge.list().some(({ name }) => name === "map.draw_get_mode"), false);
+
+  const viewport = await bridge.call("map.set_viewport", {
+    center: { lat: 50.08, lng: 14.42 },
+    zoom: 12
+  });
+  assert.equal(viewport.ok, true);
+  assert.deepEqual(viewport.value, { center: { lat: 50.08, lng: 14.42 }, zoom: 12 });
+
+  const selection = await bridge.call("map.set_selection", { ids: ["a", "b"] });
+  assert.equal(selection.ok, true);
+  assert.deepEqual(session.local.selection, ["a", "b"]);
+
+  const context = session.getContext();
+  assert.equal(context.session.id, "map:prague");
+  assert.equal(context.session.actor.userId, "582");
+  assert.deepEqual(context.local.viewport, { center: { lat: 50.08, lng: 14.42 }, zoom: 12 });
+  assert.ok(context.browserTools.length >= 4);
+
+  const committed = session.execute({
+    goal: "create_visit_route",
+    collection: "places",
+    routeId: "tour",
+    points: [
+      { id: "a", position: { lat: 50.08, lng: 14.42 } },
+      { id: "b", position: { lat: 50.09, lng: 14.43 } }
+    ]
+  });
+  assert.equal(committed.ok, true);
+  assert.equal(committed.value.revision, 1);
+
+  const locked = createAIAgentSession({
+    id: "map:locked",
+    engine: createAICommandEngine(),
+    capabilities: ["viewport"]
+  });
+  const denied = locked.execute({
+    goal: "create_visit_route",
+    collection: "places",
+    routeId: "tour",
+    points: [
+      { id: "a", position: { lat: 1, lng: 1 } },
+      { id: "b", position: { lat: 2, lng: 2 } }
+    ]
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "FORBIDDEN");
+
+  const noDraw = await locked.connect().call("map.draw_get_mode");
+  assert.equal(noDraw.ok, false);
+  assert.equal(noDraw.error.code, "NOT_FOUND");
+});
+
+test("agent session bridge drives live map viewport selection and popup", async () => {
+  const engine = createAICommandEngine();
+  const map = createMap(container(), { center: { lat: 55.75, lng: 37.62 }, zoom: 10, controls: false });
+  const projection = createAIMapProjection(map);
+  const session = createAIAgentSession({
+    id: "map:live",
+    engine,
+    map,
+    projection,
+    capabilities: ["objects", "routes", "viewport", "selection", "popup"]
+  });
+
+  const planned = session.execute({
+    goal: "create_visit_route",
+    collection: "places",
+    routeId: "tour",
+    points: [
+      { id: "a", position: { lat: 55.75, lng: 37.62 }, title: "A", popup: "Alpha" },
+      { id: "b", position: { lat: 55.76, lng: 37.63 }, title: "B", popup: "Beta" }
+    ]
+  });
+  assert.equal(planned.ok, true);
+  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+
+  const moved = await session.call("map.set_viewport", {
+    center: { lat: 50.08, lng: 14.42 },
+    zoom: 12
+  });
+  assert.equal(moved.ok, true);
+  assert.ok(Math.abs(map.getCenter().lat - 50.08) < 0.0001);
+  assert.ok(Math.abs(map.getZoom() - 12) < 0.0001);
+
+  const selected = await session.call("map.set_selection", { ids: ["b"], collection: "places" });
+  assert.equal(selected.ok, true);
+  assert.equal(projection.getCollectionManager("places").getSelectedId(), "b");
+
+  const opened = await session.call("map.open_popup", { id: "a", collection: "places" });
+  assert.equal(opened.ok, true);
+  assert.match(document.querySelector(".oh-popup")?.textContent ?? "", /A — Alpha|Alpha/);
+  assert.equal(session.local.openPopupId, "a");
+
+  const intentViaCall = await session.call("orihon.plan", {
+    goal: "update_points",
+    collection: "places",
+    points: [{ id: "a", popup: "Updated" }]
+  });
+  assert.equal(intentViaCall.ok, true);
+  assert.equal(engine.getSnapshot().collections.places.find(({ id }) => id === "a").properties.popup, "Updated");
+
+  projection.destroy();
+  map.destroy();
+});
+
+test("agent session observes browser selection and object moves into engine", () => {
+  const engine = createAICommandEngine();
+  const map = createMap(container(), { center: { lat: 55.75, lng: 37.62 }, zoom: 10, controls: false });
+  const projection = createAIMapProjection(map, { objectManager: { clusterize: false } });
+  const session = createAIAgentSession({
+    id: "map:observe",
+    engine,
+    map,
+    projection,
+    capabilities: ["objects", "routes", "viewport", "selection"]
+  });
+  assert.equal(session.execute({
+    goal: "show_places",
+    collection: "stops",
+    points: [
+      { id: "s1", position: { lat: 55.75, lng: 37.62 }, title: "One" },
+      { id: "s2", position: { lat: 55.76, lng: 37.63 }, title: "Two" }
+    ],
+    presentation: { clearMap: true }
+  }).ok, true);
+  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+
+  const events = [];
+  session.subscribeUser((event) => events.push(event));
+  const stopObserve = session.observeBrowser({ selection: true, editable: true, syncEngine: true });
+
+  projection.getCollectionManager("stops").setSelected("s2");
+  projection.getCollectionManager("stops").emit("click", {
+    objectId: "s2",
+    object: projection.getCollectionManager("stops").getObject("s2")
+  });
+  assert.deepEqual(session.local.selection, ["s2"]);
+  assert.equal(session.local.lastUserEvent?.type, "selectionchange");
+  assert.equal(events.at(-1)?.type, "selectionchange");
+
+  const moved = session.applyObjectMove({
+    collection: "stops",
+    id: "s1",
+    position: { lat: 55.751, lng: 37.621 },
+    previous: { lat: 55.75, lng: 37.62 },
+    syncEngine: true,
+    source: "user"
+  });
+  assert.equal(moved.ok, true);
+  assert.equal(moved.value.event.type, "objectmove");
+  assert.ok(moved.value.revision >= 2);
+  const feature = engine.getSnapshot().collections.stops.find(({ id }) => id === "s1");
+  assert.deepEqual(feature.geometry.coordinates, [37.621, 55.751]);
+  assert.equal(session.local.lastUserEvent?.type, "objectmove");
+  assert.equal(session.getContext().local.lastUserEvent.type, "objectmove");
+
+  stopObserve();
+  projection.destroy();
+  map.destroy();
+});
+
 test("visualization stress intents generate and update bulk data inside the engine", () => {
   const engine = createAICommandEngine();
   const runtime = createAIAgentRuntime(engine);
@@ -1253,6 +1467,147 @@ test("visualization stress intents generate and update bulk data inside the engi
   assert.match(engine.getSnapshot().collections["load-vehicles"][101].properties.popup, /пакет 0$/);
   projection.destroy();
   map.destroy();
+});
+
+test("HTTP adapter accepts browser local viewport patches on a session", async () => {
+  const engine = createAICommandEngine();
+  const sessions = createAIAgentSessionRegistry();
+  const handler = createAIHTTPHandler(engine, { sessions });
+  await handler(new Request("http://localhost/api/orihon/sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "map:view" })
+  }));
+  const patched = await handler(new Request("http://localhost/api/orihon/sessions/map%3Aview/local", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      viewport: {
+        center: { lat: 41.9, lng: 12.5 },
+        zoom: 13,
+        bounds: { south: 41.88, west: 12.47, north: 41.92, east: 12.53 }
+      },
+      lastUserEvent: {
+        type: "viewportchange",
+        viewport: {
+          center: { lat: 41.9, lng: 12.5 },
+          zoom: 13,
+          bounds: { south: 41.88, west: 12.47, north: 41.92, east: 12.53 }
+        },
+        source: "user",
+        at: 1
+      }
+    })
+  }));
+  assert.equal(patched.status, 200);
+  const body = await patched.json();
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.value.local.viewport, {
+    center: { lat: 41.9, lng: 12.5 },
+    zoom: 13,
+    bounds: { south: 41.88, west: 12.47, north: 41.92, east: 12.53 }
+  });
+  const context = await handler(new Request("http://localhost/api/orihon/sessions/map%3Aview"));
+  const contextBody = await context.json();
+  assert.equal(contextBody.local.lastUserEvent.type, "viewportchange");
+  assert.equal(contextBody.local.viewport.zoom, 13);
+  assert.equal(contextBody.local.viewport.bounds.south, 41.88);
+});
+
+test("HTTP adapter scopes context intents and SSE by session id", async () => {
+  const engine = createAICommandEngine();
+  const sessions = createAIAgentSessionRegistry();
+  const handler = createAIHTTPHandler(engine, { sessions });
+
+  const created = await handler(new Request("http://localhost/api/orihon/sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      id: "map:demo",
+      actor: { userId: "582" },
+      capabilities: ["objects", "routes", "viewport", "selection", "popup"]
+    })
+  }));
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+  assert.equal(createdBody.value.session.id, "map:demo");
+  assert.equal(createdBody.value.session.actor.userId, "582");
+  assert.deepEqual(createdBody.value.session.browserCapabilities.sort(), ["popup", "selection", "viewport"]);
+
+  const caps = await handler(new Request("http://localhost/api/orihon/sessions/map%3Ademo/capabilities"));
+  assert.equal(caps.status, 200);
+  const capsBody = await caps.json();
+  assert.equal(capsBody.interfaces.sessions, true);
+  assert.equal(capsBody.session.id, "map:demo");
+  assert.equal(capsBody.capabilities.length, 2);
+
+  const locked = createAIAgentSession({
+    id: "map:locked",
+    engine,
+    capabilities: ["viewport"]
+  });
+  sessions.register(locked);
+  const denied = await handler(new Request("http://localhost/api/orihon/sessions/map%3Alocked/intents", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      intent: {
+        goal: "create_visit_route",
+        collection: "places",
+        routeId: "tour",
+        points: [
+          { id: "a", position: { lat: 1, lng: 1 } },
+          { id: "b", position: { lat: 2, lng: 2 } }
+        ]
+      }
+    })
+  }));
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, "FORBIDDEN");
+
+  const committed = await handler(new Request("http://localhost/api/orihon/intents", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sessionId: "map:demo",
+      intent: {
+        goal: "create_visit_route",
+        collection: "places",
+        routeId: "tour",
+        points: [
+          { id: "a", position: { lat: 1, lng: 1 } },
+          { id: "b", position: { lat: 2, lng: 2 } }
+        ]
+      }
+    })
+  }));
+  assert.equal(committed.status, 200);
+  const committedBody = await committed.json();
+  assert.equal(committedBody.value.sessionId, "map:demo");
+  assert.equal(committedBody.value.revision, 1);
+
+  const context = await handler(new Request("http://localhost/api/orihon/context?sessionId=map%3Ademo"));
+  assert.equal(context.status, 200);
+  assert.equal((await context.json()).session.id, "map:demo");
+
+  const controller = new AbortController();
+  const events = await handler(new Request("http://localhost/api/orihon/sessions/map%3Ademo/events", {
+    signal: controller.signal
+  }));
+  assert.equal(events.status, 200);
+  assert.equal(events.headers.get("content-type")?.startsWith("text/event-stream"), true);
+  const reader = events.body.getReader();
+  const decoder = new TextDecoder();
+  let ready = "";
+  while (!ready.includes("\n\n")) {
+    const { value, done } = await reader.read();
+    assert.equal(done, false);
+    ready += decoder.decode(value, { stream: true });
+  }
+  controller.abort();
+  assert.match(ready, /event: ready/);
+  assert.match(ready, /"sessionId":"map:demo"/);
+  assert.match(ready, /"userId":"582"/);
 });
 
 test("HTTP adapter exposes semantic capabilities, context, preview and commit", async () => {
@@ -1456,4 +1811,534 @@ test("AI schemas and package subpath exports are published", async () => {
   assert.equal(pkg.exports["./schema/engine-command-v1.json"], "./schemas/orihon-engine-command-v1.schema.json");
   assert.ok(pkg.files.includes("schemas"));
   assert.ok(pkg.files.includes("llms.txt"));
+});
+
+test("session tools AG-UI adapter and memory store round-trip", async () => {
+  const engine = createAICommandEngine();
+  const session = createAIAgentSession({
+    id: "map:store",
+    actor: { userId: "u1" },
+    engine,
+    capabilities: ["objects", "routes", "viewport", "selection"]
+  });
+  assert.equal(session.execute({
+    goal: "show_places",
+    collection: "stops",
+    points: [
+      { id: "a", position: { lat: 55.75, lng: 37.62 }, title: "A" },
+      { id: "b", position: { lat: 55.76, lng: 37.63 }, title: "B" }
+    ],
+    presentation: { clearMap: true }
+  }).ok, true);
+  session.patchLocal({
+    viewport: { center: { lat: 55.75, lng: 37.62 }, zoom: 11, bounds: { south: 55.7, west: 37.5, north: 55.8, east: 37.7 } },
+    selection: ["a"]
+  });
+
+  const tools = listAISessionTools(session);
+  assert.ok(tools.some(({ name }) => name === "orihon.plan"));
+  assert.ok(tools.some(({ name }) => name === "map.set_viewport"));
+  assert.ok(tools.some(({ name }) => name === "map.get_selection"));
+
+  const agui = createAIAGUIAdapter(session);
+  assert.deepEqual(agui.listTools().map(({ name }) => name).sort(), tools.map(({ name }) => name).sort());
+  const events = [];
+  for await (const event of agui.runTool({
+    name: "map.set_viewport",
+    args: { center: { lat: 50.08, lng: 14.42 }, zoom: 12 }
+  })) {
+    events.push(event.type);
+  }
+  assert.ok(events.includes("TOOL_CALL_START"));
+  assert.ok(events.includes("TOOL_CALL_RESULT"));
+  assert.ok(events.includes("RUN_FINISHED"));
+  assert.deepEqual(session.local.viewport, { center: { lat: 50.08, lng: 14.42 }, zoom: 12 });
+
+  const registered = [];
+  const install = await installAIWebMCPTools(session, {
+    modelContext: {
+      async registerTool(tool, options) {
+        registered.push(tool.name);
+        assert.equal(typeof tool.execute, "function");
+        assert.ok(options?.signal);
+      }
+    },
+    includeServer: false
+  });
+  assert.ok(registered.includes("map.get_viewport"));
+  assert.equal(registered.includes("orihon.plan"), false);
+  install.abort.abort();
+
+  const store = createMemoryAISessionStore();
+  const saved = store.save(session);
+  assert.equal(saved.version, 1);
+  assert.equal(saved.id, "map:store");
+  assert.equal(saved.snapshot.collections.stops.length, 2);
+  assert.equal(saved.local.selection[0], "a");
+
+  const restored = restoreAIAgentSession(saved);
+  assert.equal(restored.id, "map:store");
+  assert.equal(restored.engine.revision, session.engine.revision);
+  assert.equal(restored.engine.getSnapshot().collections.stops.length, 2);
+  assert.deepEqual(restored.local.selection, ["a"]);
+  assert.equal(restored.execute({
+    goal: "update_points",
+    collection: "stops",
+    points: [{ id: "a", title: "A2" }]
+  }).ok, true);
+  assert.equal(restored.engine.getSnapshot().collections.stops.find(({ id }) => id === "a").properties.title, "A2");
+});
+
+test("a viewport fit hint expires with its revision instead of re-fitting forever", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+
+  assert.equal(runtime.execute({
+    goal: "show_places",
+    collection: "places",
+    points: [
+      { id: "a", position: { lat: 10, lng: 10 } },
+      { id: "b", position: { lat: 11, lng: 11 } }
+    ],
+    presentation: { viewport: { mode: "fit" } }
+  }).ok, true);
+  assert.deepEqual(engine.getSnapshot().viewport, { collection: "places", revision: 1, mode: "fit" });
+
+  // A later transaction that asks for no viewport must not resurrect the hint.
+  assert.equal(runtime.execute({
+    goal: "update_points",
+    collection: "places",
+    points: [{ id: "a", title: "renamed" }]
+  }).ok, true);
+  assert.equal(engine.getSnapshot().viewport, undefined);
+
+  // A route planned right after a fit still inherits it inside one transaction.
+  const engine2 = createAICommandEngine();
+  const runtime2 = createAIAgentRuntime(engine2);
+  assert.equal(runtime2.execute({
+    goal: "create_visit_route",
+    collection: "stops",
+    routeId: "tour",
+    points: [
+      { id: "a", position: { lat: 10, lng: 10 } },
+      { id: "b", position: { lat: 11, lng: 11 } }
+    ],
+    presentation: { viewport: { mode: "fit", padding: 40 } }
+  }).ok, true);
+  const inherited = engine2.getSnapshot().viewport;
+  assert.equal(inherited.revision, engine2.revision);
+  assert.equal(inherited.padding, 40);
+
+  // A standalone later route.plan must not revive that expired hint either.
+  assert.equal(engine2.execute({
+    op: "objects.update",
+    collection: "stops",
+    objects: [{ type: "Feature", id: "a", geometry: { type: "Point", coordinates: [10, 10] }, properties: {} }]
+  }).ok, true);
+  assert.equal(engine2.execute({ op: "route.plan", routeId: "tour", collection: "stops" }).ok, true);
+  assert.equal(engine2.getSnapshot().viewport, undefined);
+});
+
+test("clear resets layers, collections and routes together", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  assert.equal(runtime.execute({
+    goal: "create_visit_route",
+    collection: "deliveries",
+    routeId: "run",
+    points: [
+      { id: "a", position: { lat: 55.7, lng: 37.6 } },
+      { id: "b", position: { lat: 55.75, lng: 37.61 } },
+      { id: "c", position: { lat: 55.82, lng: 37.63 } }
+    ],
+    route: { startId: "a", optimize: "shortest" }
+  }).ok, true);
+  const before = engine.getSnapshot();
+  assert.equal(before.collections.deliveries.length, 3);
+  assert.deepEqual(Object.keys(before.routes), ["run"]);
+
+  assert.equal(engine.execute({ op: "clear" }).ok, true);
+  const after = engine.getSnapshot();
+  assert.deepEqual(after.scene.layers, []);
+  assert.deepEqual(after.collections, {});
+  assert.equal(after.routes, undefined);
+  assert.equal(after.viewport, undefined);
+});
+
+test("clearMap names every route it drops so projections cannot orphan polylines", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  for (const [collection, routeId, lat] of [["a", "ra", 1], ["b", "rb", 3]]) {
+    assert.equal(runtime.execute({
+      goal: "create_visit_route",
+      collection,
+      routeId,
+      points: [
+        { id: collection + "1", position: { lat, lng: lat } },
+        { id: collection + "2", position: { lat: lat + 1, lng: lat + 1 } }
+      ],
+      route: { reactive: true }
+    }).ok, true);
+  }
+  assert.deepEqual(Object.keys(engine.getSnapshot().routes).sort(), ["ra", "rb"]);
+
+  const events = [];
+  engine.subscribe((event) => events.push(event));
+  assert.equal(engine.execute({
+    op: "points.replace",
+    collection: "a",
+    clearMap: true,
+    points: [{ id: "z", position: { lat: 9, lng: 9 } }]
+  }).ok, true);
+
+  assert.equal(engine.getSnapshot().routes, undefined);
+  assert.deepEqual([...events.at(-1).removedRouteIds].sort(), ["ra", "rb"]);
+});
+
+test("presentation defaults supply a shared visual image without a shared label", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  assert.equal(runtime.execute({
+    goal: "show_places",
+    collection: "places",
+    points: [
+      { id: "a", position: { lat: 1, lng: 2 }, title: "A" },
+      { id: "b", position: { lat: 3, lng: 4 }, title: "B", visual: { label: "own" } }
+    ],
+    presentation: {
+      defaults: { visual: { image: { url: "https://cdn.test/marker.png", shape: "circle" }, size: 60 } }
+    }
+  }).ok, true);
+
+  const [a, b] = engine.getSnapshot().collections.places;
+  assert.deepEqual(a.properties.visual, {
+    image: { url: "https://cdn.test/marker.png", shape: "circle" },
+    size: 60
+  });
+  // Point-level visuals still win, and absent keys are omitted rather than set to undefined.
+  assert.deepEqual(b.properties.visual, {
+    image: { url: "https://cdn.test/marker.png", shape: "circle" },
+    label: "own",
+    size: 60
+  });
+  assert.equal("collisionMode" in b.properties.visual, false);
+});
+
+test("capability steps compile by declared operation, not by payload shape", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  assert.equal(runtime.execute({
+    goal: "show_places",
+    collection: "places",
+    points: [{ id: "a", position: { lat: 1, lng: 2 } }]
+  }).ok, true);
+
+  const mislabelled = runtime.commit({
+    version: 1,
+    id: "manual",
+    goal: "show_places",
+    baseRevision: engine.revision,
+    steps: [{
+      id: "s1",
+      capability: "orihon.object-manager",
+      operation: "replace_points",
+      dependsOn: [],
+      input: {
+        collection: "places",
+        objects: [{ type: "Feature", id: "a", geometry: { type: "Point", coordinates: [9, 9] }, properties: {} }]
+      }
+    }]
+  });
+  assert.equal(mislabelled.ok, false);
+  assert.equal(mislabelled.error.code, "UNKNOWN_PROPERTY");
+  assert.deepEqual(engine.getSnapshot().collections.places[0].geometry.coordinates, [2, 1]);
+});
+
+test("replaceSnapshot validates restored routes and viewport", () => {
+  const engine = createAICommandEngine();
+  const base = { version: 1, revision: 3, scene: { version: 1, layers: [] }, collections: {} };
+
+  assert.throws(
+    () => engine.replaceSnapshot({ ...base, routes: { bad: "not-a-route" } }),
+    (error) => error.code === "INVALID_TYPE" && error.path === "$snapshot.routes.bad"
+  );
+  assert.throws(
+    () => engine.replaceSnapshot({
+      ...base,
+      routes: { r: { id: "r", collection: "c", waypointIds: ["a"], routes: [], selectedIndex: 4 } }
+    }),
+    (error) => error.code === "INVALID_VALUE" && error.path === "$snapshot.routes.r.selectedIndex"
+  );
+  assert.throws(
+    () => engine.replaceSnapshot({ ...base, viewport: { mode: "fit", collection: "c", revision: -1 } }),
+    (error) => error.code === "INVALID_VALUE" && error.path === "$snapshot.viewport.revision"
+  );
+  assert.equal(engine.revision, 0, "a rejected snapshot must not mutate live state");
+
+  const valid = createAICommandEngineFromSnapshot({
+    ...base,
+    routes: {
+      r: {
+        id: "r",
+        collection: "c",
+        waypointIds: ["a", "b"],
+        routes: [{ coordinates: [{ lat: 1, lng: 1 }, { lat: 2, lng: 2 }], distance: 10 }],
+        selectedIndex: 0
+      }
+    }
+  });
+  assert.equal(valid.revision, 3);
+  assert.equal(createAIAgentRuntime(valid).getContext().routes[0].stops, 2);
+});
+
+test("session records keep an unrestricted session unrestricted", () => {
+  const open = createAIAgentSession({ id: "open", engine: createAICommandEngine() });
+  assert.equal(open.capabilityGroups, null);
+  const openRecord = createAISessionRecord(open);
+  assert.equal(openRecord.capabilities, undefined);
+  assert.equal(restoreAIAgentSession(openRecord).browserCapabilityGroups, null);
+  assert.equal(restoreAIAgentSession(openRecord).describeCapabilities().length, 3);
+
+  const locked = createAIAgentSession({
+    id: "locked",
+    engine: createAICommandEngine(),
+    capabilities: ["objects", "viewport"]
+  });
+  const lockedRecord = createAISessionRecord(locked);
+  assert.deepEqual(lockedRecord.capabilities, ["objects", "viewport"]);
+  const restored = restoreAIAgentSession(lockedRecord);
+  assert.deepEqual(restored.browserCapabilityGroups, ["viewport"]);
+  assert.deepEqual(restored.describeCapabilities().map(({ id }) => id), ["orihon.object-manager"]);
+});
+
+test("session SSE and snapshot read the session's own engine", async () => {
+  const handlerEngine = createAICommandEngine();
+  const tenantEngine = createAICommandEngine();
+  const sessions = createAIAgentSessionRegistry();
+  const handler = createAIHTTPHandler(handlerEngine, {
+    sessions,
+    createSession: (input) => createAIAgentSession({ ...input, engine: tenantEngine })
+  });
+
+  const created = await handler(new Request("http://localhost/api/orihon/sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "map:tenant" })
+  }));
+  assert.equal(created.status, 201);
+
+  assert.equal(tenantEngine.execute({
+    op: "points.replace",
+    collection: "c",
+    points: [{ id: "a", position: { lat: 1, lng: 2 } }]
+  }).ok, true);
+  assert.equal(tenantEngine.revision, 1);
+  assert.equal(handlerEngine.revision, 0);
+
+  const snapshot = await (await handler(new Request("http://localhost/api/orihon/sessions/map%3Atenant/snapshot"))).json();
+  assert.equal(snapshot.revision, 1);
+
+  const controller = new AbortController();
+  const events = await handler(new Request("http://localhost/api/orihon/sessions/map%3Atenant/events", {
+    signal: controller.signal
+  }));
+  const reader = events.body.getReader();
+  const decoder = new TextDecoder();
+  let ready = "";
+  while (!ready.includes("\n\n")) {
+    const { value, done } = await reader.read();
+    assert.equal(done, false);
+    ready += decoder.decode(value, { stream: true });
+  }
+  const payload = JSON.parse(ready.slice(ready.indexOf("data: ") + 6));
+  assert.equal(payload.revision, snapshot.revision, "SSE must start from the session engine revision");
+  controller.abort();
+});
+
+test("sessionId without a registry is refused instead of answered unscoped", async () => {
+  const handler = createAIHTTPHandler(createAICommandEngine());
+  const response = await handler(new Request("http://localhost/api/orihon/context?sessionId=map%3Amissing"));
+  assert.equal(response.status, 503);
+
+  const sessions = createAIAgentSessionRegistry();
+  const scoped = createAIHTTPHandler(createAICommandEngine(), { sessions });
+  assert.equal((await scoped(new Request("http://localhost/api/orihon/context?sessionId=nope"))).status, 404);
+});
+
+test("agent loop survives tool calls and results that are not JSON values", async () => {
+  const adapter = {
+    provider: "test",
+    model: "test-model",
+    complete: async ({ messages }) => (messages.some((entry) => entry.role === "tool")
+      ? { content: "done", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 } }
+      : {
+        content: null,
+        toolCalls: [{ id: "call-1", name: "noop", arguments: undefined }],
+        usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
+      })
+  };
+  const agent = createAILLMAgent({
+    adapter,
+    systemPrompt: "test",
+    tools: [{
+      definition: { name: "noop", description: "returns nothing", inputSchema: { type: "object" } },
+      execute: () => undefined
+    }]
+  });
+
+  const result = await agent.run("go");
+  assert.equal(result.ok, true);
+  assert.equal(result.value.message, "done");
+  assert.equal(result.value.toolCalls.length, 1);
+  assert.equal(result.value.toolCalls[0].result, undefined);
+});
+
+test("observeBrowser unwires dragend handlers so re-observing cannot double-report moves", () => {
+  const engine = createAICommandEngine();
+  const map = createMap(container(), { center: { lat: 55.75, lng: 37.62 }, zoom: 10, controls: false });
+  const projection = createAIMapProjection(map, { objectManager: { clusterize: false } });
+  const session = createAIAgentSession({ id: "map:drag", engine, map, projection });
+  assert.equal(session.execute({
+    goal: "show_places",
+    collection: "stops",
+    points: [{ id: "s1", position: { lat: 55.75, lng: 37.62 }, title: "One" }]
+  }).ok, true);
+  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+
+  // Headless renderers keep no DOM markers, so stand one in to exercise the
+  // per-marker drag path observeBrowser uses without ObjectManager.draggablePoints.
+  const manager = projection.getCollectionManager("stops");
+  const dom = marker({ lat: 55.75, lng: 37.62 });
+  manager.markers.set("s1", dom);
+
+  const moves = [];
+  session.subscribeUser((event) => { if (event.type === "objectmove") moves.push(event); });
+
+  let stop;
+  for (let round = 0; round < 3; round++) stop = session.observeBrowser({ editable: true, syncEngine: false });
+  assert.equal(dom.isDraggable(), true);
+
+  dom.emit("dragend", { latlng: { lat: 55.8, lng: 37.7 } });
+  assert.equal(moves.length, 1, "re-observing must not stack dragend listeners");
+
+  stop();
+  assert.equal(dom.isDraggable(), false, "stopping observation releases the marker");
+  dom.emit("dragend", { latlng: { lat: 55.9, lng: 37.8 } });
+  assert.equal(moves.length, 1, "a stopped observation must not keep reporting");
+
+  projection.destroy();
+  map.destroy();
+});
+
+test("applyObjectMove keeps the map and engine consistent when the engine rejects", () => {
+  const map = createMap(container(), { center: { lat: 55.75, lng: 37.61 }, zoom: 10, controls: false });
+  const projection = createAIMapProjection(map, { objectManager: { clusterize: false } });
+  const engine = createAICommandEngine();
+  const session = createAIAgentSession({ id: "atomic", engine, map, projection });
+
+  const command = {
+    op: "points.replace",
+    collection: "stops",
+    points: [{ id: "a", position: { lat: 55.75, lng: 37.61 } }]
+  };
+  assert.equal(engine.execute(command).ok, true);
+  assert.equal(projection.applyEvent({ type: "objects", revision: 1, collection: "stops", command }).ok, true);
+
+  const rejected = session.applyObjectMove({ collection: "stops", id: "missing", position: { lat: 1, lng: 2 } });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, "NOT_FOUND");
+
+  const source = projection.getCollectionSource("stops");
+  assert.deepEqual(source.get("a").geometry.coordinates, [37.61, 55.75], "a rejected move must not shift the map");
+
+  const accepted = session.applyObjectMove({ collection: "stops", id: "a", position: { lat: 55.8, lng: 37.7 } });
+  assert.equal(accepted.ok, true);
+  assert.deepEqual(source.get("a").geometry.coordinates, [37.7, 55.8]);
+  assert.deepEqual(engine.getSnapshot().collections.stops[0].geometry.coordinates, [37.7, 55.8]);
+
+  projection.destroy();
+  map.destroy();
+});
+
+test("recycled marker icons reload only when the source URL actually changes", () => {
+  const icon = new Icon({ iconUrl: "./pin.png", iconSize: [32, 32], shape: "circle" });
+  const first = icon.createIcon();
+  const loads = [];
+  Object.defineProperty(first, "src", {
+    configurable: true,
+    get() { return this.getAttribute("src") ?? ""; },
+    set(value) { loads.push(value); this.setAttribute("src", value); }
+  });
+
+  icon.createIcon(first);
+  assert.deepEqual(loads, [], "a relative URL must not be re-assigned on every render");
+  assert.equal(first.classList.contains("oh-marker-icon-circle"), true);
+
+  const other = new Icon({ iconUrl: "./other.png", iconSize: [32, 32], shape: "circle" });
+  other.createIcon(first);
+  assert.deepEqual(loads, ["./other.png"]);
+});
+
+test("projection enables AI styling when visuals come from presentation defaults", () => {
+  const map = createMap(container(), { center: { lat: 1, lng: 2 }, zoom: 10, controls: false });
+  const projection = createAIMapProjection(map);
+  const command = {
+    op: "points.replace",
+    collection: "places",
+    points: [{ id: "a", position: { lat: 1, lng: 2 }, title: "A" }],
+    defaults: { visual: { image: { url: "https://cdn.test/marker.png" }, size: 48 } }
+  };
+
+  assert.equal(projection.applyEvent({ type: "objects", revision: 1, collection: "places", command }).ok, true);
+  const manager = projection.getCollectionManager("places");
+  assert.equal(typeof manager.options.style, "function", "defaults-only visuals must still install the AI style resolver");
+  const styled = manager.options.style(
+    { properties: projection.getCollectionSource("places").get("a").properties },
+    {},
+    {}
+  );
+  assert.equal(styled.image.url, "https://cdn.test/marker.png");
+  assert.equal(styled.size, 48);
+
+  projection.destroy();
+  map.destroy();
+});
+
+test("projection drops route layers of every collection a clearMap wipes", () => {
+  const engine = createAICommandEngine();
+  const runtime = createAIAgentRuntime(engine);
+  const map = createMap(container(), { center: { lat: 2, lng: 2 }, zoom: 8, controls: false });
+  const projection = createAIMapProjection(map);
+
+  for (const [collection, routeId, lat] of [["a", "ra", 1], ["b", "rb", 3]]) {
+    assert.equal(runtime.execute({
+      goal: "create_visit_route",
+      collection,
+      routeId,
+      points: [
+        { id: collection + "1", position: { lat, lng: lat } },
+        { id: collection + "2", position: { lat: lat + 1, lng: lat + 1 } }
+      ],
+      route: { reactive: true }
+    }).ok, true);
+  }
+  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual([...projection.getRouteNames()].sort(), ["ra", "rb"]);
+
+  const events = [];
+  const stop = engine.subscribe((event) => events.push(event));
+  assert.equal(engine.execute({
+    op: "points.replace",
+    collection: "a",
+    clearMap: true,
+    points: [{ id: "z", position: { lat: 9, lng: 9 } }]
+  }).ok, true);
+  stop();
+
+  assert.equal(projection.applyEvent(events.at(-1)).ok, true);
+  assert.deepEqual(projection.getRouteNames(), [], "clearMap must not leave polylines of other collections behind");
+  assert.equal(projection.getCollectionSource("b").getFeatures().length, 0);
+
+  projection.destroy();
+  map.destroy();
 });

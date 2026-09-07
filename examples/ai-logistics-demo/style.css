@@ -1,0 +1,179 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  color: #1a2a28;
+  background: #e8efec;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { min-height: 100vh; overflow: hidden; }
+button { font: inherit; cursor: pointer; }
+
+.app-shell {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, .7fr);
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.map-panel, .agent-panel {
+  border: 1px solid #c5d4cf;
+  background: #f7faf8;
+  border-radius: 18px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.map-panel { position: relative; height: 100%; }
+.map-heading {
+  position: absolute;
+  z-index: 1000;
+  inset: 16px 16px auto;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.map-heading > div:first-child {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(247, 250, 248, .9);
+  border: 1px solid rgba(255,255,255,.8);
+}
+.eyebrow { color: #b45309; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin: 2px 0 0; font-size: 22px; }
+h2 { margin: 4px 0 8px; font-size: 24px; }
+h3 { margin: 0; font-size: 14px; }
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #1f2f2c;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.connection span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, .2);
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #d7e4df;
+}
+.map-note {
+  position: absolute;
+  z-index: 1000;
+  left: 16px;
+  bottom: 16px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(247,250,248,.92);
+  border: 1px solid rgba(255,255,255,.8);
+  font-size: 12px;
+}
+
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+  height: 100%;
+}
+.intro { color: #405652; font-size: 14px; line-height: 1.45; margin: 0; }
+.intro code { font-size: 12px; }
+
+.steps {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: #4b5f5a;
+}
+.steps li { padding: 6px 8px; border-radius: 8px; }
+.steps li.active { background: #fff7ed; color: #9a3412; font-weight: 600; }
+.steps li.done { color: #166534; }
+
+.actions { display: flex; gap: 8px; flex-shrink: 0; }
+.actions button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #c2410c;
+  color: #fff;
+  font-weight: 700;
+}
+.actions button.ghost {
+  background: #e7eeeb;
+  color: #1a2a28;
+}
+
+.state-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.state-card div {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eef4f1;
+}
+.state-card span { display: block; font-size: 11px; color: #5b706b; margin-bottom: 2px; }
+.state-card strong { font-size: 13px; word-break: break-word; }
+
+.log-section {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.log-heading { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.log-heading button {
+  border: 0;
+  background: transparent;
+  color: #5b706b;
+  font-size: 12px;
+}
+.log {
+  flex: 1;
+  overflow: auto;
+  border-radius: 12px;
+  background: #12201d;
+  color: #d7e8e2;
+  padding: 10px;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.log .entry { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.log .entry strong { color: #fdba74; }
+.log .entry.success strong { color: #86efac; }
+.log .entry.error strong { color: #fca5a5; }
+.log pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; opacity: .9; }
+
+@media (max-width: 960px) {
+  body { overflow: auto; }
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .map-panel { height: 56vh; min-height: 360px; }
+  .agent-panel { height: auto; max-height: none; }
+}

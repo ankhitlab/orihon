@@ -3,12 +3,23 @@
 Orihon is a TypeScript browser mapping library.
 
 For AI-generated maps prefer `orihon/ai`. It accepts versioned, JSON-only scenes and
-machine-readable commands. For ordinary application code prefer `orihon/easy`.
+machine-readable commands. For agent-native sessions (intents + browser tools) see
+`docs/AI_SESSIONS.md` and `docs/AI_AGENT_SESSION_PROMPT.md`. For ordinary application code
+prefer `orihon/easy`.
 
 Imports:
 
     import { createMap } from "orihon/easy";
-    import { createAISession, applyScene } from "orihon/ai";
+    import {
+      createAISession,
+      createAIAgentSession,
+      listAISessionTools,
+      installAIWebMCPTools,
+      createAIAGUIAdapter,
+      createMemoryAISessionStore,
+      restoreAIAgentSession,
+      applyScene
+    } from "orihon/ai";
     import "orihon/orihon.css";
 
 Coordinate rules:
@@ -16,32 +27,64 @@ Coordinate rules:
 - Coordinate arrays are not accepted by the AI API.
 - GeoJSON remains standard longitude-first: `[37.61, 55.75]`.
 
-Scene rules:
+Scene rules (createAISession / orihon_execute):
 - Use `version: 1`.
 - Every layer has a stable, unique `id`.
 - Layer types are `marker`, `polyline`, `polygon`, `geojson`, and `raster`.
 - Popup and tooltip content is plain text: `{ "text": "Moscow" }`.
 - Functions, DOM nodes, class instances, `undefined`, and non-finite numbers are rejected.
 
+Agent-session rules (createAIAgentSession / session.call):
+- Prefer `orihon.plan` semantic intents over inventing layer/command JSON.
+- Goals: `show_places`, `create_visit_route`, `update_points` (plus stress-test goals when enabled).
+- Browser tools: `map.get_viewport`, `map.set_viewport`, `map.get_selection`, `map.set_selection`,
+  `map.open_popup`, `map.close_popup`.
+- `local.viewport` includes `center`, `zoom`, and `bounds` `{south,west,north,east}` — use bounds
+  at high zoom; center alone is not the visible rectangle.
+- One session id ↔ one map instance. Point `category`: `alpha` | `beta` | `gamma` | `alert`.
+- Same tool list everywhere: `listAISessionTools`, WebMCP (`installAIWebMCPTools`), AG-UI
+  (`createAIAGUIAdapter`). Do not invent a second vocabulary.
+- Optional persistence: `createAISessionRecord` / `restoreAIAgentSession` / `createMemoryAISessionStore`.
+- Auth, multi-node sync, and DB are host concerns.
+
 Server/agent rules:
 - `createAICommandEngine()` is headless and owns canonical revisioned JSON state.
 - Prefer `createAIIntentTool(createAIAgentRuntime(engine))` for semantic goals; it plans through
   registered ObjectManager and Route Model capabilities and commits atomically.
+- Use `show_places` for markers without a route; `create_visit_route` when a tour/path is needed.
 - `create_visit_route` routes are reactive by default: collection changes trigger engine-side
   replanning without another model call.
 - `createAIHTTPHandler(engine)` exposes snapshot, command, and SSE endpoints.
-- Semantic HTTP endpoints expose capabilities, compact context, intent preview, and intent commit.
+- Semantic HTTP endpoints expose capabilities, compact context, intent preview, intent commit, and place search.
+- `createAIAgentSession({ id, engine, map?, projection? })` is the agent-facing session; `session.call` routes browser tools and semantic intents.
+- `session.observeBrowser({ selection, viewport, editable })` and `subscribeUser` mirror map
+  clicks/drags/pans into session local state (and optionally the engine).
+- `createAIHTTPHandler(engine, { sessions })` exposes session create + scoped context/intents/SSE/local.
 - `createAIMapProjection(map)` applies server events in the browser.
 - Live domain entities use `objects.*` commands and stable GeoJSON feature IDs.
 - Object deltas flow through `FeatureSource` into `ObjectManager`.
 - Named point maps can use `points.replace` with declarative popups, circular `visual.image`, hover-first `visual.label`, and `viewport.mode:"fit"`.
+- `presentation.defaults.visual` applies to points that omit `visual`, with either a shared
+  `image.url`, a shared `label`, or both.
+- `{ "op": "clear" }` resets the whole AI map — scene layers, collections and routes.
+  Use `{ "op": "clear", "ids": [...] }` for single layers and `objects.clear` for one collection.
+- A `viewport.mode:"fit"` hint expires with the revision that produced it; later commands never
+  revive it, so the camera is fitted once and the user keeps control afterwards.
+- `restoreAIAgentSession` / `engine.replaceSnapshot` rebuild state without events — call
+  `projection.applySnapshot(engine.getSnapshot())` to repaint an attached map.
 - `route.plan` orders an existing point collection and projects its RouteResult through RoutingLayer.
 - `createAIEngineTool(engine, { profile })` supports `full`, `scene`, `objects`, `points`, `routes`, and `readonly` schemas.
 - Engine tool results are compact by default; HTTP and SSE retain complete revisioned events.
 
 Authoritative references:
-- `docs/AI.md`
-- `docs/AI_SYSTEM_PROMPT.md`
+- `docs/AI.md` — developer API (scenes, engine, intents)
+- `docs/AI_SESSIONS.md` — agent-native sessions (developer guide)
+- `docs/AI_AGENT_SESSION_PROMPT.md` — model rules for AIAgentSession
+- `docs/AI_SYSTEM_PROMPT.md` — model rules for orihon_execute / engine tools
+- `examples/ai-agent-demo/` — playground
+- `examples/ai-logistics-demo/` — closed-loop logistics vertical
+- WebMCP: `installAIWebMCPTools(session)` · AG-UI: `createAIAGUIAdapter(session)`
+- Store: `createMemoryAISessionStore()` / `restoreAIAgentSession(record)`
 - `schemas/orihon-scene-v1.schema.json`
 - `schemas/orihon-command-v1.schema.json`
 - `schemas/orihon-engine-command-v1.schema.json`

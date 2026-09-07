@@ -1,6 +1,7 @@
 import { distance, latLng } from "../geo.js";
 import { createStraightLineRoutingProvider, type RouteWaypoint } from "../services/routing.js";
 import { AIError } from "./errors.js";
+import { clone } from "./json.js";
 import type {
   AIObjectFeature,
   AIRoutePlanCommand,
@@ -19,10 +20,6 @@ interface RouteStop {
 export interface PlannedAIRoute {
   state: AIRoutePlanState;
   objects: AIObjectFeature[];
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function pathDistance(stops: readonly RouteStop[], closeLoop: boolean): number {

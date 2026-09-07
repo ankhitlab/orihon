@@ -1,4 +1,4 @@
-import { AIError } from "./errors.js";
+import { fail, keys, plainObject as object, requiredProperty as required, type JSONObject } from "./json.js";
 import type {
   AIBasemapSpec,
   AICommand,
@@ -10,37 +10,8 @@ import type {
   AITextContent
 } from "./types.js";
 
-type JSONObject = Record<string, unknown>;
-
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const LAYER_TYPES = new Set(["marker", "polyline", "polygon", "geojson", "raster"]);
-
-function fail(code: ConstructorParameters<typeof AIError>[0], path: string, message: string, received?: unknown): never {
-  throw new AIError(code, path, message, received);
-}
-
-function object(value: unknown, path: string): JSONObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    fail("INVALID_TYPE", path, "Expected an object", value);
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    fail("NOT_JSON", path, "Expected a plain JSON object", value);
-  }
-  return value as JSONObject;
-}
-
-function keys(value: JSONObject, allowed: readonly string[], path: string): void {
-  const set = new Set(allowed);
-  for (const key of Object.keys(value)) {
-    if (!set.has(key)) fail("UNKNOWN_PROPERTY", `${path}.${key}`, `Unknown property "${key}"`, value[key]);
-  }
-}
-
-function required(value: JSONObject, key: string, path: string): unknown {
-  if (!(key in value)) fail("REQUIRED_PROPERTY", `${path}.${key}`, `Required property "${key}" is missing`);
-  return value[key];
-}
 
 function string(value: unknown, path: string, { nonEmpty = false }: { nonEmpty?: boolean } = {}): string {
   if (typeof value !== "string") fail("INVALID_TYPE", path, "Expected a string", value);

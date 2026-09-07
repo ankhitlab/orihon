@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orihon · Logistics loop</title>
+  <link rel="stylesheet" href="/dist/orihon.css" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="map-panel" aria-label="Карта доставки">
+      <header class="map-heading">
+        <div>
+          <span class="eyebrow">LOGISTICS VERTICAL</span>
+          <h1>Closed loop</h1>
+        </div>
+        <div class="connection"><span></span> session + SSE</div>
+      </header>
+      <div id="map"></div>
+      <div class="map-note">Опоздания → highlight → маршрут → drag → AI видит → replan</div>
+    </section>
+
+    <aside class="agent-panel">
+      <section>
+        <span class="eyebrow">AGENT-NATIVE MAPS</span>
+        <h2>Доставки с опозданиями</h2>
+        <p class="intro">
+          Детерминированный сценарий без LLM: семантические intents, <code>category: alert</code>,
+          reactive route и browser→session events. После шага 3 перетащите или выберите точку —
+          демо сразу добавит реакцию AI на карту.
+        </p>
+      </section>
+
+      <ol class="steps" id="steps" aria-label="Шаги сценария">
+        <li data-step="load"><strong>1. Данные</strong> — склад + остановки с SLA</li>
+        <li data-step="highlight"><strong>2. Highlight</strong> — критичные → <code>alert</code></li>
+        <li data-step="route"><strong>3. Order</strong> — reactive visit route</li>
+        <li data-step="replan"><strong>4. Live</strong> — drag/select → AI добавляет реакцию</li>
+      </ol>
+
+      <div class="actions">
+        <button id="run-loop" type="button">Запустить цикл</button>
+        <button id="reset" type="button" class="ghost">Сброс</button>
+      </div>
+
+      <section class="state-card" aria-live="polite">
+        <div><span>Статус</span><strong id="status">Готов</strong></div>
+        <div><span>Шаг</span><strong id="step-label">—</strong></div>
+        <div><span>Сессия</span><strong id="session-id">—</strong></div>
+        <div><span>Ревизия</span><strong id="revision">0</strong></div>
+        <div><span>Selection</span><strong id="selection">—</strong></div>
+        <div><span>Последний event</span><strong id="last-event">—</strong></div>
+      </section>
+
+      <section class="log-section">
+        <div class="log-heading">
+          <h3>Журнал цикла</h3>
+          <button id="clear-log" type="button">Очистить</button>
+        </div>
+        <div id="log" class="log"></div>
+      </section>
+    </aside>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

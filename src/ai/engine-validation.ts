@@ -1,6 +1,7 @@
-import { AIError } from "./errors.js";
+import { fail, keys, plainObject as object, requiredProperty as required, type JSONObject } from "./json.js";
 import type {
   AIEngineCommand,
+  AIEngineViewport,
   AIObjectBatchChange,
   AIObjectCommand,
   AIObjectFeature,
@@ -16,36 +17,13 @@ import type {
   AIPointVisualLabel,
   AIPointViewport,
   AIPointsReplaceCommand,
-  AIRoutePlanCommand
+  AIRoutePlanCommand,
+  AIRoutePlanState,
+  AIRouteResult
 } from "./types.js";
 import { validateCommand } from "./validation.js";
 
-type JSONObject = Record<string, unknown>;
-
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-
-function fail(code: ConstructorParameters<typeof AIError>[0], path: string, message: string, received?: unknown): never {
-  throw new AIError(code, path, message, received);
-}
-
-function object(value: unknown, path: string): JSONObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) fail("INVALID_TYPE", path, "Expected an object", value);
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) fail("NOT_JSON", path, "Expected a plain JSON object", value);
-  return value as JSONObject;
-}
-
-function keys(value: JSONObject, allowed: readonly string[], path: string): void {
-  const set = new Set(allowed);
-  for (const key of Object.keys(value)) {
-    if (!set.has(key)) fail("UNKNOWN_PROPERTY", `${path}.${key}`, `Unknown property "${key}"`, value[key]);
-  }
-}
-
-function required(value: JSONObject, key: string, path: string): unknown {
-  if (!(key in value)) fail("REQUIRED_PROPERTY", `${path}.${key}`, `Required property "${key}" is missing`);
-  return value[key];
-}
 
 function string(value: unknown, path: string): string {
   if (typeof value !== "string") fail("INVALID_TYPE", path, "Expected a string", value);
@@ -514,6 +492,66 @@ export function validateRoutePlanCommand(value: unknown, path = "$command"): AIR
   if (source.closeLoop !== undefined) result.closeLoop = boolean(source.closeLoop, `${path}.closeLoop`);
   if (source.annotateStops !== undefined) result.annotateStops = boolean(source.annotateStops, `${path}.annotateStops`);
   if (source.reactive !== undefined) result.reactive = boolean(source.reactive, `${path}.reactive`);
+  return result;
+}
+
+/** Persisted viewport hint, including the revision that produced it. */
+export function validateEngineViewport(value: unknown, path = "$viewport"): AIEngineViewport {
+  const source = object(value, path);
+  const { collection: rawCollection, revision: rawRevision, ...hint } = source;
+  const viewport = pointViewport(hint, path);
+  const revision = finite(required(source, "revision", path), `${path}.revision`);
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    fail("INVALID_VALUE", `${path}.revision`, "Expected a non-negative safe integer", rawRevision);
+  }
+  return {
+    ...viewport,
+    collection: name(required(source, "collection", path), `${path}.collection`),
+    revision
+  };
+}
+
+function routeResult(value: unknown, path: string): AIRouteResult {
+  const source = object(value, path);
+  keys(source, ["id", "name", "coordinates", "distance", "durationMs", "properties"], path);
+  if (!Array.isArray(source.coordinates)) {
+    fail("INVALID_TYPE", `${path}.coordinates`, "Expected an array of {lat,lng} positions", source.coordinates);
+  }
+  const result: AIRouteResult = {
+    coordinates: source.coordinates.map((entry, index) => namedPosition(entry, `${path}.coordinates[${index}]`))
+  };
+  if (source.id !== undefined) result.id = id(source.id, `${path}.id`);
+  if (source.name !== undefined) result.name = string(source.name, `${path}.name`);
+  if (source.distance !== undefined) result.distance = finite(source.distance, `${path}.distance`);
+  if (source.durationMs !== undefined) result.durationMs = finite(source.durationMs, `${path}.durationMs`);
+  if (source.properties !== undefined) {
+    result.properties = json(source.properties, `${path}.properties`) as Record<string, unknown>;
+  }
+  return result;
+}
+
+/**
+ * Restored route state. Snapshots can come from an untrusted store, so the
+ * fields {@link AIAgentRuntime.getContext} and projections dereference
+ * (`routes[selectedIndex]`, `waypointIds`) are validated here.
+ */
+export function validateRoutePlanState(value: unknown, path = "$route"): AIRoutePlanState {
+  const source = object(value, path);
+  keys(source, ["id", "collection", "waypointIds", "routes", "selectedIndex", "request"], path);
+  if (!Array.isArray(source.routes)) fail("INVALID_TYPE", `${path}.routes`, "Expected an array of route results", source.routes);
+  const routes = source.routes.map((entry, index) => routeResult(entry, `${path}.routes[${index}]`));
+  const selectedIndex = finite(required(source, "selectedIndex", path), `${path}.selectedIndex`);
+  if (!Number.isSafeInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= Math.max(routes.length, 1)) {
+    fail("INVALID_VALUE", `${path}.selectedIndex`, "selectedIndex must point at an existing route", source.selectedIndex);
+  }
+  const result: AIRoutePlanState = {
+    id: name(required(source, "id", path), `${path}.id`),
+    collection: name(required(source, "collection", path), `${path}.collection`),
+    waypointIds: ids(required(source, "waypointIds", path), `${path}.waypointIds`),
+    routes,
+    selectedIndex
+  };
+  if (source.request !== undefined) result.request = validateRoutePlanCommand(source.request, `${path}.request`);
   return result;
 }
 

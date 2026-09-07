@@ -3,6 +3,8 @@ import {
   AI_ENGINE_COMMAND_SCHEMA,
   AI_ENGINE_COMMAND_SCHEMAS,
   ORIHON_AI_ENGINE_SYSTEM_PROMPT,
+  createAIAgentSession,
+  createAICommandEngine,
   createAIMapProjection
 } from "/dist/ai-entry.js";
 import { createCommandJournal, createPendingCommandTracker } from "./journal.js";
@@ -23,6 +25,35 @@ const map = createMap("map", {
 });
 const projection = createAIMapProjection(map, { objectManager: { declutter: true } });
 const pendingCommands = createPendingCommandTracker();
+/** Browser-side agent session: live map tools; server intents still go via HTTP. */
+const SESSION_ID = "map:ai-agent-demo";
+const localEngine = createAICommandEngine();
+const agentSession = createAIAgentSession({
+  id: SESSION_ID,
+  actor: { userId: "demo" },
+  engine: localEngine,
+  map,
+  projection,
+  capabilities: ["objects", "routes", "visualization", "viewport", "selection", "popup"]
+});
+agentSession.connect();
+let localPushTimer;
+async function pushLocalToServer(extra = {}) {
+  try {
+    await fetch(`/api/orihon/sessions/${encodeURIComponent(SESSION_ID)}/local`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...(agentSession.local.viewport ? { viewport: agentSession.local.viewport } : {}),
+        ...(agentSession.local.selection ? { selection: agentSession.local.selection } : {}),
+        ...(agentSession.local.lastUserEvent ? { lastUserEvent: agentSession.local.lastUserEvent } : {}),
+        ...extra
+      })
+    });
+  } catch {
+    /* offline / server restart */
+  }
+}
 
 const elements = {
   form: document.querySelector("#prompt-form"),
@@ -33,6 +64,8 @@ const elements = {
   routeCount: document.querySelector("#route-count"),
   revision: document.querySelector("#revision"),
   lastOp: document.querySelector("#last-op"),
+  sessionId: document.querySelector("#session-id"),
+  selection: document.querySelector("#selection"),
   modelStatus: document.querySelector("#model-status"),
   modelTokens: document.querySelector("#model-tokens"),
   runModel: document.querySelector("#run-model"),
@@ -40,6 +73,42 @@ const elements = {
   command: document.querySelector("#command-input")
 };
 const journal = createCommandJournal(elements.log);
+
+agentSession.subscribeUser((event) => {
+  appendLog("", "browser → session", event);
+  if (event.type === "objectmove") {
+    const source = projection.getCollectionSource(event.collection);
+    const feature = source?.get(event.id);
+    void executeCommand({
+      op: "objects.update",
+      collection: event.collection,
+      objects: [{
+        type: "Feature",
+        id: event.id,
+        geometry: { type: "Point", coordinates: [event.position.lng, event.position.lat] },
+        properties: feature?.properties ?? {}
+      }]
+    }, "User drag → objects.update");
+  }
+  if (elements.selection && event.type === "selectionchange") {
+    elements.selection.textContent = event.selection.join(", ") || "—";
+  }
+  if (event.type === "viewportchange") {
+    clearTimeout(localPushTimer);
+    localPushTimer = setTimeout(() => { void pushLocalToServer(); }, 200);
+  } else {
+    void pushLocalToServer();
+  }
+});
+// After snapshot/collections exist we re-call observe; initial hook covers later markers via render.
+function observeLiveMap() {
+  try {
+    agentSession.observeBrowser({ selection: true, viewport: true, editable: true, syncEngine: false });
+  } catch {
+    /* projection may be empty before first snapshot */
+  }
+}
+observeLiveMap();
 
 const sceneCommand = {
   op: "apply_scene",
@@ -197,6 +266,7 @@ const scenarios = {
 
 function inferScenario(prompt) {
   const normalized = prompt.toLowerCase();
+  if (normalized.includes("session") || normalized.includes("сесси") || normalized.includes("viewport") || normalized.includes("выдел")) return "session";
   if (normalized.includes("ai-модел") || normalized.includes("глубок")) return "deep";
   if (normalized.includes("маршрут") || normalized.includes("поряд")) return "route";
   if (normalized.includes("15") || normalized.includes("мест")) return "places";
@@ -221,6 +291,11 @@ function updateState(result, operation) {
   elements.revision.textContent = String(projection.revision);
   elements.lastOp.textContent = operation;
   elements.status.textContent = result.ok ? "Команда выполнена" : result.error.code;
+  if (elements.sessionId) elements.sessionId.textContent = agentSession.id;
+  if (elements.selection) {
+    const ids = agentSession.local.selection ?? [];
+    elements.selection.textContent = ids.length ? ids.join(", ") : "—";
+  }
 }
 
 async function executeCommand(command, label = "LLM → orihon_execute") {
@@ -252,6 +327,7 @@ async function syncSnapshot() {
   const result = projection.applySnapshot(snapshot);
   if (!result.ok) appendLog("error", "Snapshot projection error", result);
   updateState(result, "snapshot");
+  observeLiveMap();
   return snapshot;
 }
 
@@ -281,7 +357,7 @@ async function runIntent(intent) {
   appendLog("", "LLM → semantic intent", intent);
   let result;
   try {
-    const response = await fetch("/api/orihon/intents", {
+    const response = await fetch(`/api/orihon/sessions/${encodeURIComponent(SESSION_ID)}/intents`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ intent, baseRevision: projection.revision })
@@ -309,7 +385,44 @@ async function runIntent(intent) {
   return result;
 }
 
+async function runSessionScenario() {
+  elements.status.textContent = "AIAgentSession: intent + browser tools…";
+  appendLog("", "AIAgentSession.connect", {
+    id: agentSession.id,
+    browserTools: agentSession.connect().list().map(({ name }) => name),
+    context: agentSession.getContext().session
+  });
+
+  const intentResult = await runIntent(visitRouteIntent);
+  if (!intentResult.ok) return intentResult;
+
+  const kremlin = moscowPlaces.find(([id]) => id === "kremlin");
+  const [, , lat, lng] = kremlin;
+
+  const viewport = await agentSession.call("map.set_viewport", {
+    center: { lat, lng },
+    zoom: 14
+  });
+  appendLog(viewport.ok ? "success" : "error", "session.call → map.set_viewport", viewport);
+  updateState(viewport, "map.set_viewport");
+  if (!viewport.ok) return viewport;
+
+  const selection = await agentSession.call("map.set_selection", { ids: ["kremlin"] });
+  appendLog(selection.ok ? "success" : "error", "session.call → map.set_selection", selection);
+  updateState(selection, "map.set_selection");
+  if (!selection.ok) return selection;
+
+  const popup = await agentSession.call("map.open_popup", { id: "kremlin" });
+  appendLog(popup.ok ? "success" : "error", "session.call → map.open_popup", popup);
+  updateState(popup, "map.open_popup");
+  elements.status.textContent = popup.ok
+    ? "Session: маршрут + viewport + selection + popup"
+    : popup.error.code;
+  return popup;
+}
+
 async function runScenario(name) {
+  if (name === "session") return runSessionScenario();
   if (name === "deep") return runIntent(visitRouteIntent);
   const commands = scenarios[name]();
   elements.status.textContent = "Агент формирует команду…";
@@ -412,8 +525,10 @@ Object.defineProperty(window, "orihonAgentDemo", {
   value: Object.freeze({
     map,
     projection,
+    agentSession,
     executeCommand,
     runIntent,
+    runSessionScenario,
     systemPrompt: ORIHON_AI_ENGINE_SYSTEM_PROMPT,
     commandSchema: AI_ENGINE_COMMAND_SCHEMA,
     commandSchemas: AI_ENGINE_COMMAND_SCHEMAS
@@ -428,11 +543,16 @@ appendLog("success", "Server tool registered", {
   commandVariants: AI_ENGINE_COMMAND_SCHEMA.oneOf.length,
   pointProfileVariants: AI_ENGINE_COMMAND_SCHEMAS.points.oneOf.length
 });
+appendLog("success", "AIAgentSession ready", {
+  id: agentSession.id,
+  browserTools: agentSession.connect().list().map(({ name }) => name),
+  observe: { selection: true, viewport: true, editable: true, syncEngine: false }
+});
 // Snapshot first, then SSE — otherwise ready can race and fly from a stale camera twice.
 const initialSnapshot = await syncSnapshot();
 await loadModelConfig();
 
-const events = new EventSource("/api/orihon/events");
+const events = new EventSource(`/api/orihon/sessions/${encodeURIComponent(SESSION_ID)}/events`);
 events.addEventListener("command", (event) => applyServerEvent(JSON.parse(event.data), "sse"));
 events.addEventListener("ready", (event) => {
   const server = JSON.parse(event.data);

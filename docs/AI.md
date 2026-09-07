@@ -40,6 +40,10 @@ ordinary coordinates.
 It supports `set_view`, `fly_to`, `add`, `update`, `remove`, `clear`, `fit`, `query`, and
 `apply_scene`.
 
+`{ op: "clear" }` without `ids` resets the whole AI-owned map — scene layers, object
+collections and routes — the same surface `points.replace` clears with `clearMap: true`.
+Pass `ids` to remove individual layers, or `objects.clear` to empty a single collection.
+
 ```ts
 session.execute({
   op: "add",
@@ -144,14 +148,43 @@ The built-in HTTP adapter exposes:
 
 - `GET /api/orihon/snapshot` — complete state and current revision;
 - `POST /api/orihon/commands` — `{ "command": {...}, "baseRevision": 12 }`;
-- `GET /api/orihon/events` — SSE stream of accepted revisioned commands.
+- `GET /api/orihon/events` — SSE stream of accepted revisioned commands;
+- with `sessions` registry: `POST /sessions`, `GET /sessions/:id`, scoped intents/SSE
+  (see [`AI_SESSIONS.md`](./AI_SESSIONS.md)).
 
 ## Semantic agent runtime
 
-The command bridge remains available as the low-level execution boundary. For deeper integration,
-use the semantic runtime: the model states one goal, the runtime discovers native model
-capabilities, builds a dependency plan, previews it on an isolated engine fork, and commits the
-whole plan as one revision.
+**Agent-native maps** (shared session, browser tools, HTTP/SSE, WebMCP, AG-UI, optional store)
+are documented in [`AI_SESSIONS.md`](./AI_SESSIONS.md). Model-facing rules for that layer:
+[`AI_AGENT_SESSION_PROMPT.md`](./AI_AGENT_SESSION_PROMPT.md).
+
+Prefer `createAIAgentSession` + `session.call` / `listAISessionTools` over inventing a custom
+WebSocket protocol. Adapters share one tool vocabulary:
+
+```ts
+import {
+  createAIAgentSession,
+  listAISessionTools,
+  installAIWebMCPTools,
+  createAIAGUIAdapter,
+  createMemoryAISessionStore,
+  restoreAIAgentSession
+} from "orihon/ai";
+
+const session = createAIAgentSession({ id: "map:demo", actor: { userId: "u" }, engine, map, projection });
+listAISessionTools(session);                 // register with any LLM SDK
+await installAIWebMCPTools(session);         // Chrome WebMCP modelContext
+const agui = createAIAGUIAdapter(session);   // RUN_* / STATE_* event stream
+
+const store = createMemoryAISessionStore();
+store.save(session);
+// later: restoreAIAgentSession(record, { map, projection })
+```
+
+The command bridge (`createAISession` / `orihon_execute`) remains the low-level execution boundary.
+For deeper integration, use the semantic runtime: the model states one goal, the runtime discovers
+native model capabilities, builds a dependency plan, previews it on an isolated engine fork, and
+commits the whole plan as one revision.
 
 ```ts
 import {
@@ -168,12 +201,24 @@ model.registerTool(tool.definition);
 model.setSystemPrompt(tool.systemPrompt);
 ```
 
-`orihon_plan` currently accepts `create_visit_route`. The intent carries the place collection and
-semantic route constraints, not a precomputed route. The runtime compiles it into
-`ObjectManager.replace_points -> RouteModel.plan`, validates both steps on a private fork, and then
-publishes one atomic `transaction` event. Routes created this way are reactive by default:
-updating or removing a source object makes the route model recalculate the remaining stops without
-another model call.
+`orihon_plan` accepts `show_places` (markers only) and `create_visit_route` (markers + route).
+`create_visit_route` carries the place collection and semantic route constraints, not a precomputed
+route. The runtime compiles it into `ObjectManager.replace_points -> RouteModel.plan`, validates
+both steps on a private fork, and then publishes one atomic `transaction` event. Routes created
+this way are reactive by default: updating or removing a source object makes the route model
+recalculate the remaining stops without another model call.
+
+```json
+{
+  "goal": "show_places",
+  "collection": "milan-places",
+  "points": [
+    { "id": "duomo", "position": { "lat": 45.4642, "lng": 9.1900 }, "title": "Duomo" },
+    { "id": "scala", "position": { "lat": 45.4676, "lng": 9.1896 }, "title": "La Scala" }
+  ],
+  "presentation": { "clearMap": true, "viewport": { "mode": "fit", "padding": 48 } }
+}
+```
 
 ```json
 {

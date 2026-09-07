@@ -13,37 +13,35 @@ function mergeVisual(
 ): AIPointVisual | undefined {
   if (!defaults && !point) return undefined;
   if (!defaults) return point;
+  const defaultImage = defaults.image && typeof defaults.image.url === "string"
+    ? ({ ...defaults.image } as AIPointVisual["image"])
+    : undefined;
   if (!point) {
-    // Defaults alone are only useful when they already form a valid visual (label and/or image.url).
-    if (defaults.label !== undefined) {
-      return {
-        ...(defaults.image && typeof defaults.image.url === "string"
-          ? { image: { url: defaults.image.url, ...defaults.image } as AIPointVisual["image"] }
-          : {}),
-        label: defaults.label,
-        ...(defaults.size !== undefined ? { size: defaults.size } : {}),
-        ...(defaults.collisionMode !== undefined ? { collisionMode: defaults.collisionMode } : {})
-      };
-    }
-    return undefined;
+    // Defaults alone are useful as soon as they form a valid visual — a shared label,
+    // a shared image.url, or both. Requiring a label here silently dropped
+    // presentation.defaults.visual.image, the shared marker chrome agents are told to send.
+    if (defaults.label === undefined && !defaultImage) return undefined;
+    return {
+      ...(defaultImage ? { image: defaultImage } : {}),
+      ...(defaults.label !== undefined ? { label: defaults.label } : {}),
+      ...(defaults.size !== undefined ? { size: defaults.size } : {}),
+      ...(defaults.collisionMode !== undefined ? { collisionMode: defaults.collisionMode } : {})
+    };
   }
-  const imageDefaults = defaults.image;
   const image = point.image
-    ? {
-        ...(imageDefaults ?? {}),
-        ...point.image
-      }
-    : imageDefaults && typeof imageDefaults.url === "string"
-      ? { ...imageDefaults, url: imageDefaults.url }
-      : undefined;
-  const result: AIPointVisual = {
+    ? { ...(defaults.image ?? {}), ...point.image }
+    : defaultImage;
+  const label = point.label !== undefined ? point.label : defaults.label;
+  const size = point.size !== undefined ? point.size : defaults.size;
+  const collisionMode = point.collisionMode !== undefined ? point.collisionMode : defaults.collisionMode;
+  if (!image && label === undefined) return undefined;
+  // Omit absent keys instead of writing explicit undefined into feature properties.
+  return {
     ...(image ? { image } : {}),
-    label: point.label !== undefined ? point.label : defaults.label,
-    size: point.size !== undefined ? point.size : defaults.size,
-    collisionMode: point.collisionMode !== undefined ? point.collisionMode : defaults.collisionMode
+    ...(label !== undefined ? { label } : {}),
+    ...(size !== undefined ? { size } : {}),
+    ...(collisionMode !== undefined ? { collisionMode } : {})
   };
-  if (!result.image && result.label === undefined) return undefined;
-  return result;
 }
 
 function applyDefaults(point: AIPointSpec, defaults?: AIPointDefaults): AIPointSpec {

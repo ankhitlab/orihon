@@ -38,6 +38,26 @@ const visitRouteDefinition = {
   }
 } as const;
 
+const showPlacesDefinition = {
+  type: "object",
+  required: ["goal", "collection", "points"],
+  additionalProperties: false,
+  properties: {
+    goal: { const: "show_places" },
+    collection: { type: "string", minLength: 1 },
+    points: { type: "array", minItems: 1, items: { $ref: "#/$defs/pointItem" } },
+    presentation: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        clearMap: { type: "boolean" },
+        defaults: { $ref: "#/$defs/pointDefaults" },
+        viewport: { $ref: "#/$defs/pointViewport" }
+      }
+    }
+  }
+} as const;
+
 const updatePointsDefinition = {
   type: "object",
   required: ["goal", "collection", "points"],
@@ -117,9 +137,11 @@ export type AIIntentSchemaProfile = "visit" | "stress" | "full";
 /** Visit-route focused schema (default for agents — omits stress-test goals). */
 export const AI_INTENT_SCHEMA_VISIT: AIJSONSchema = freezeIntentSchema({
   createVisitRoute: visitRouteDefinition,
+  showPlaces: showPlacesDefinition,
   updatePoints: updatePointsDefinition
 }, [
   { $ref: "#/$defs/createVisitRoute" },
+  { $ref: "#/$defs/showPlaces" },
   { $ref: "#/$defs/updatePoints" }
 ]);
 
@@ -133,11 +155,13 @@ export const AI_INTENT_SCHEMA_STRESS: AIJSONSchema = freezeIntentSchema({
 
 export const AI_INTENT_SCHEMA_FULL: AIJSONSchema = freezeIntentSchema({
   createVisitRoute: visitRouteDefinition,
+  showPlaces: showPlacesDefinition,
   updatePoints: updatePointsDefinition,
   createVisualizationStressTest: createStressDefinition,
   updateVisualizationStressTest: updateStressDefinition
 }, [
   { $ref: "#/$defs/createVisitRoute" },
+  { $ref: "#/$defs/showPlaces" },
   { $ref: "#/$defs/updatePoints" },
   { $ref: "#/$defs/createVisualizationStressTest" },
   { $ref: "#/$defs/updateVisualizationStressTest" }
@@ -158,7 +182,7 @@ export function getAIIntentSchema(profile: AIIntentSchemaProfile = "visit"): AIJ
 
 export const ORIHON_AI_INTENT_SYSTEM_PROMPT = `You collaborate with Orihon through the orihon_plan tool.
 
-Express the user's map goal as one semantic intent. Orihon discovers its model capabilities, validates a dependency plan, and commits it atomically. Supply stable place IDs and safe titles. A popup may be plain text or declarative {text,image:{url,alt,caption}} content. Prefer plain-text popups when visual.image is set — the map popup reuses that photo automatically. Use visual.image for a circular photo and visual.label for its hover label; omit label.display unless the user asks for persistent text (display:"always"). Put repeated chrome in presentation.defaults.visual (shape, fit, border, size). Do not emulate photos or labels with HTML. Image URLs must be verified HTTPS or local URLs. Use update_points to patch existing ids without resending the whole collection. Let the route model calculate order and geometry; never repeat route coordinates. Semantic routes are reactive by default. For visualization load tests, send only counts, center, seed and update tick.`;
+Express the user's map goal as one semantic intent. Orihon discovers its model capabilities, validates a dependency plan, and commits it atomically. Supply stable place IDs and safe titles. A popup may be plain text or declarative {text,image:{url,alt,caption}} content. Prefer plain-text popups when visual.image is set — the map popup reuses that photo automatically. Use visual.image for a circular photo and visual.label for its hover label; omit label.display unless the user asks for persistent text (display:"always"). Put repeated chrome in presentation.defaults.visual (shape, fit, border, size). Do not emulate photos or labels with HTML. Image URLs must be verified HTTPS or local URLs. Use show_places when the user wants markers without a route (no routeId). Use create_visit_route only when a visit path or ordered tour is requested. Use update_points to patch existing ids without resending the whole collection. Let the route model calculate order and geometry; never repeat route coordinates. Semantic routes are reactive by default. For visualization load tests, send only counts, center, seed and update tick.`;
 
 export interface AIIntentToolSuccess {
   goal: AIIntent["goal"];

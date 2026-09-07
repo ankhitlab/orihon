@@ -1,4 +1,5 @@
 import { AIError, toAIError } from "./errors.js";
+import { clone } from "./json.js";
 import type { AIJSONSchema } from "./tool.js";
 import type { AIErrorDetails, AIResult } from "./types.js";
 
@@ -75,10 +76,6 @@ export interface AILLMAgentOptions {
 
 export interface AILLMAgent {
   run(message: string, options?: { signal?: AbortSignal }): Promise<AIResult<AILLMAgentSuccess>>;
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function usage(): AILLMUsage {
@@ -160,7 +157,7 @@ export function createAILLMAgent(options: AILLMAgentOptions): AILLMAgent {
               value: {
                 provider: options.adapter.provider,
                 model: completion.model ?? options.adapter.model,
-                message: completion.content ?? "Готово.",
+                message: completion.content ?? "",
                 turns: turn,
                 usage: totalUsage,
                 toolCalls: traces

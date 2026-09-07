@@ -1,11 +1,19 @@
 # Orihon AI Agent demo
 
-The demo has two execution paths:
+The demo has three execution paths:
 
-- deterministic local scenarios, which need no model or key;
+- deterministic local scenarios (HTTP commands / intents), which need no model or key;
+- **AIAgentSession** hybrid scenario: server `create_visit_route` intent (session-scoped HTTP),
+  then browser tools (`map.set_viewport`, `map.set_selection`, `map.open_popup`) via `session.call`;
 - `POST /api/agent`, which runs a provider-neutral tool loop through an OpenAI-compatible Chat Completions endpoint.
 
-The API key stays in the server process. The browser receives only configuration status, normalized token usage, tool traces and Orihon SSE updates.
+Session transport: demo registers `map:ai-agent-demo` on the server; the browser uses
+`/api/orihon/sessions/:id/intents` and `/events`. See `docs/AI_SESSIONS.md`.
+
+Closed-loop logistics vertical (same server):
+<http://127.0.0.1:4193/examples/ai-logistics-demo/> — late deliveries → highlight →
+reactive route → drag → replan (`map:ai-logistics-demo`). Both demos share one engine
+scene; run one at a time.
 
 ## Model configuration
 

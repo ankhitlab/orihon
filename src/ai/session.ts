@@ -12,6 +12,7 @@ import {
   type RasterTileLayer
 } from "../standard.js";
 import { AIError, toAIError } from "./errors.js";
+import { clone } from "./json.js";
 import type {
   AIBasemapSpec,
   AICommand,
@@ -40,10 +41,6 @@ interface EasyBasemapMap extends Orihon {
 
 function hasEasyBasemap(map: Orihon): map is EasyBasemapMap {
   return typeof (map as unknown as Partial<EasyBasemapMap>).setBasemap === "function";
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function bindText(layer: Layer, spec: AILayerSpec): Layer {

@@ -81,8 +81,10 @@ function aiPointObjectStyle(object: ManagedObject): ObjectStyle | undefined {
         shape: image.shape === "rectangle" ? "rectangle" : "circle",
         fit: image.fit === "contain" || image.fit === "fill" ? image.fit : "cover",
         borderColor: typeof image.borderColor === "string" ? image.borderColor : "#ffffff",
-        borderWidth: typeof image.borderWidth === "number" ? image.borderWidth : 2
+        borderWidth: typeof image.borderWidth === "number" ? image.borderWidth : 3
       };
+      // Photo markers should stay visible under declutter unless the intent opts out.
+      if (spec.collisionMode === undefined) result.collisionMode = "always";
     }
   }
   const rawLabel = spec.label;
@@ -237,7 +239,11 @@ export class AIMapProjection {
       if (event.type === "scene") {
         const result = this.session.execute(event.command);
         if (!result.ok) return result;
-        if (event.command.op === "clear" && event.command.ids === undefined) this.#clearRoutes();
+        if (event.command.op === "clear" && event.command.ids === undefined) {
+          // A full clear resets collections and routes in the engine too.
+          this.#clearRoutes();
+          for (const projection of this.#collections.values()) projection.source.clear();
+        }
       } else if (event.type === "route") {
         this.#annotateRoute(event.route, event.command.annotateStops !== false);
         this.#applyRoute(event.route);
@@ -255,15 +261,19 @@ export class AIMapProjection {
       } else {
         const command = event.command;
         this.#removeRoutesForCollection(event.collection);
+        // clearMap also drops routes of other collections; the engine names them here.
+        if (event.removedRouteIds?.length) this.#removeRoutes(event.removedRouteIds);
         if (command.op === "points.replace") {
           if (command.clearMap) {
             const cleared = this.session.execute({ op: "clear" });
             if (!cleared.ok) return { ok: false, error: cleared.error };
             for (const projection of this.#collections.values()) projection.source.clear();
           }
-          const projection = this.#collection(event.collection, command.points.length > 100,
-            command.points.some((point) => point.visual !== undefined));
-          projection.source.replace(pointCommandFeatures(command));
+          // Visuals can arrive from presentation.defaults, so decide on the merged
+          // features rather than on the raw point specs.
+          const features = pointCommandFeatures(command);
+          const projection = this.#collection(event.collection, features.length > 100, hasAIVisual(features));
+          projection.source.replace(features);
           if (command.viewport) this.#fitPoints(command);
         } else {
           const source = this.#collection(event.collection).source;
@@ -443,25 +453,39 @@ export class AIMapProjection {
   }
 
   #removeRoutesForCollection(collection: string): void {
-    const removedIds = new Set<string>();
+    const ids: string[] = [];
     for (const [id, projection] of this.#routes) {
-      if (projection.collection !== collection) continue;
-      removedIds.add(id);
+      if (projection.collection === collection) ids.push(id);
+    }
+    this.#removeRoutes(ids);
+  }
+
+  /** Drop route layers by id and strip the stop annotations they wrote, per owning collection. */
+  #removeRoutes(ids: Iterable<string>): void {
+    const removedByCollection = new Map<string, Set<string>>();
+    for (const id of ids) {
+      const projection = this.#routes.get(id);
+      if (!projection) continue;
       projection.layer.remove();
       this.#routes.delete(id);
+      const bucket = removedByCollection.get(projection.collection) ?? new Set<string>();
+      bucket.add(id);
+      removedByCollection.set(projection.collection, bucket);
     }
-    const source = this.#collections.get(collection)?.source;
-    if (!source || removedIds.size === 0) return;
-    source.batch(() => {
-      for (const feature of source.getFeatures()) {
-        const properties = feature.properties ?? {};
-        if (typeof properties.routeId !== "string" || !removedIds.has(properties.routeId)) continue;
-        const next = { ...properties };
-        delete next.routeId;
-        delete next.visitOrder;
-        source.update({ ...feature, properties: next });
-      }
-    });
+    for (const [collection, removedIds] of removedByCollection) {
+      const source = this.#collections.get(collection)?.source;
+      if (!source) continue;
+      source.batch(() => {
+        for (const feature of source.getFeatures()) {
+          const properties = feature.properties ?? {};
+          if (typeof properties.routeId !== "string" || !removedIds.has(properties.routeId)) continue;
+          const next = { ...properties };
+          delete next.routeId;
+          delete next.visitOrder;
+          source.update({ ...feature, properties: next });
+        }
+      });
+    }
   }
 
   #clearRoutes(): void {

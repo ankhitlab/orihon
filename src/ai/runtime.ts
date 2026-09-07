@@ -1,6 +1,7 @@
 import { AICapabilityRegistry, createDefaultAICapabilityRegistry } from "./capabilities.js";
 import type { AICommandEngine } from "./engine.js";
 import { AIError, toAIError } from "./errors.js";
+import { clone, keys, record } from "./json.js";
 import { validatePointPatches, validatePointsReplaceCommand, validateRoutePlanCommand } from "./engine-validation.js";
 import type {
   AIAgentContext,
@@ -17,6 +18,7 @@ import type {
   AIPointPatch,
   AIResourceReference,
   AIResult,
+  AIShowPlacesIntent,
   AIUpdatePointsIntent,
   AIVisualizationStressIntent,
   AIVisualizationStressUpdateIntent
@@ -30,24 +32,6 @@ export interface AIPlanPreviewResult {
 }
 
 const CONTEXT_ID_LIMIT = 64;
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AIError("INVALID_TYPE", path, "Expected an object", value);
-  }
-  return value as Record<string, unknown>;
-}
-
-function keys(source: Record<string, unknown>, allowed: readonly string[], path: string): void {
-  const valid = new Set(allowed);
-  for (const key of Object.keys(source)) {
-    if (!valid.has(key)) throw new AIError("UNKNOWN_PROPERTY", `${path}.${key}`, `Unknown property "${key}"`, source[key]);
-  }
-}
 
 function requiredString(source: Record<string, unknown>, key: string, path: string): string {
   const value = source[key];
@@ -168,6 +152,36 @@ function validateCreateVisitRouteIntent(value: unknown, path = "$intent"): AICre
   };
 }
 
+function validateShowPlacesIntent(value: unknown, path = "$intent"): AIShowPlacesIntent {
+  const source = record(value, path);
+  keys(source, ["goal", "collection", "points", "presentation"], path);
+  if (source.goal !== "show_places") {
+    throw new AIError("INVALID_VALUE", `${path}.goal`, "Expected show_places", source.goal);
+  }
+  const collection = requiredString(source, "collection", path);
+  const presentation = source.presentation === undefined ? {} : record(source.presentation, `${path}.presentation`);
+  keys(presentation, ["clearMap", "viewport", "defaults"], `${path}.presentation`);
+  const pointsCommand = validatePointsReplaceCommand({
+    op: "points.replace",
+    collection,
+    points: source.points,
+    ...presentation
+  }, `${path}.pointsAction`);
+  if (pointsCommand.points.length < 1) {
+    throw new AIError("EMPTY_SELECTION", `${path}.points`, "show_places requires at least one point", source.points);
+  }
+  return {
+    goal: "show_places",
+    collection,
+    points: clone(pointsCommand.points),
+    presentation: {
+      ...(pointsCommand.clearMap !== undefined ? { clearMap: pointsCommand.clearMap } : {}),
+      ...(pointsCommand.defaults ? { defaults: clone(pointsCommand.defaults) } : {}),
+      ...(pointsCommand.viewport ? { viewport: clone(pointsCommand.viewport) } : {})
+    }
+  };
+}
+
 function validateUpdatePointsIntent(value: unknown, path = "$intent"): AIUpdatePointsIntent {
   const source = record(value, path);
   keys(source, ["goal", "collection", "points", "presentation"], path);
@@ -199,6 +213,7 @@ function validateUpdatePointsIntent(value: unknown, path = "$intent"): AIUpdateP
 export function validateAIIntent(value: unknown, path = "$intent"): AIIntent {
   const source = record(value, path);
   if (source.goal === "create_visit_route") return validateCreateVisitRouteIntent(value, path);
+  if (source.goal === "show_places") return validateShowPlacesIntent(value, path);
   if (source.goal === "update_points") return validateUpdatePointsIntent(value, path);
   if (source.goal === "create_visualization_stress_test") return validateVisualizationStressIntent(value, path);
   if (source.goal === "update_visualization_stress_test") return validateVisualizationStressUpdateIntent(value, path);
@@ -404,6 +419,32 @@ export class AIAgentRuntime {
               operation: "update_points",
               dependsOn: [],
               input: { collection: intent.collection, objects: clone([...patchedById.values()]) },
+              produces: [collectionRef]
+            }]
+          }
+        };
+      }
+      if (intent.goal === "show_places") {
+        const collectionRef: AIResourceReference = { kind: "collection", id: intent.collection };
+        return {
+          ok: true,
+          value: {
+            version: 1,
+            id: `${intent.collection}@${baseRevision + 1}`,
+            goal: intent.goal,
+            baseRevision,
+            steps: [{
+              id: "places",
+              capability: "orihon.object-manager",
+              operation: "replace_points",
+              dependsOn: [],
+              input: {
+                collection: intent.collection,
+                points: clone(intent.points),
+                ...(intent.presentation?.clearMap !== undefined ? { clearMap: intent.presentation.clearMap } : {}),
+                ...(intent.presentation?.defaults ? { defaults: clone(intent.presentation.defaults) } : {}),
+                ...(intent.presentation?.viewport ? { viewport: clone(intent.presentation.viewport) } : {})
+              },
               produces: [collectionRef]
             }]
           }

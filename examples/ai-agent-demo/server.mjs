@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   ORIHON_AI_AGENT_SYSTEM_PROMPT,
   createAIAgentRuntime,
+  createAIAgentSession,
+  createAIAgentSessionRegistry,
   createAICommandEngine,
   createAIHTTPHandler,
   createAIIntentTool,
@@ -28,13 +30,28 @@ const mime = {
 
 const engine = createAICommandEngine();
 const runtime = createAIAgentRuntime(engine);
+const sessions = createAIAgentSessionRegistry();
+sessions.register(createAIAgentSession({
+  id: "map:ai-agent-demo",
+  actor: { userId: "demo" },
+  engine,
+  runtime,
+  capabilities: ["objects", "routes", "visualization", "viewport", "selection", "popup"]
+}));
+sessions.register(createAIAgentSession({
+  id: "map:ai-logistics-demo",
+  actor: { userId: "dispatcher" },
+  engine,
+  runtime,
+  capabilities: ["objects", "routes", "viewport", "selection", "popup"]
+}));
 const placeProvider = createNominatimPlaceSearchProvider({
   userAgent: process.env.ORIHON_NOMINATIM_USER_AGENT?.trim() || "Orihon-AI-Demo/2.0",
   minIntervalMs: Number(process.env.ORIHON_NOMINATIM_INTERVAL_MS ?? 1050)
 });
 const placeTool = createAIPlaceSearchTool(placeProvider);
 const mapTool = createAIIntentTool(runtime);
-const api = createAIHTTPHandler(engine, { runtime, placeSearch: placeTool });
+const api = createAIHTTPHandler(engine, { runtime, placeSearch: placeTool, sessions });
 const llmBaseURL = process.env.ORIHON_LLM_BASE_URL?.trim();
 const llmModel = process.env.ORIHON_LLM_MODEL?.trim();
 const llmConfigured = Boolean(llmBaseURL && llmModel);
@@ -188,6 +205,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Orihon AI Agent Playground: http://127.0.0.1:${port}/examples/ai-agent-demo/`);
+  console.log(`Orihon Logistics loop:     http://127.0.0.1:${port}/examples/ai-logistics-demo/`);
   console.log(`Command API: http://127.0.0.1:${port}/api/orihon`);
   console.log(`Model agent: ${llmConfigured ? `${process.env.ORIHON_LLM_PROVIDER?.trim() || "openai-compatible"} / ${llmModel}` : "not configured"}`);
 });

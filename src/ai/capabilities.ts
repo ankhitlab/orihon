@@ -1,4 +1,5 @@
 import { AIError } from "./errors.js";
+import { clone } from "./json.js";
 import { validateObjectCommand, validatePointsReplaceCommand, validateRoutePlanCommand } from "./engine-validation.js";
 import { visualizationStressCommands, visualizationStressUpdateCommands } from "./stress.js";
 import type {
@@ -12,11 +13,8 @@ import type {
 
 export interface AICapabilityAdapter {
   readonly definition: AICapabilityDescription;
-  compile(input: Record<string, unknown>, path: string): AIEngineCommand | AIEngineCommand[];
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  /** `operation` is the step's declared operation name, already checked against the definition. */
+  compile(input: Record<string, unknown>, path: string, operation: string): AIEngineCommand | AIEngineCommand[];
 }
 
 function resource(value: unknown, path: string): AIResourceReference {
@@ -78,8 +76,11 @@ const objectManagerCapability: AICapabilityAdapter = {
       }
     }]
   },
-  compile(input, path) {
-    if (Array.isArray(input.objects)) {
+  compile(input, path, operation) {
+    // Dispatch on the declared operation, not on the payload shape: a step that says
+    // replace_points must not quietly execute objects.update just because it carries
+    // an `objects` array.
+    if (operation === "update_points") {
       return validateObjectCommand({ op: "objects.update", collection: input.collection, objects: input.objects }, path);
     }
     return validatePointsReplaceCommand({ op: "points.replace", ...input }, path);
@@ -109,7 +110,7 @@ const routeModelCapability: AICapabilityAdapter = {
       }
     }]
   },
-  compile(input, path) {
+  compile(input, path, _operation) {
     const source = resource(input.source, `${path}.source`);
     if (source.kind !== "collection") {
       throw new AIError("INVALID_VALUE", `${path}.source.kind`, "Route source must be a collection", source.kind);
@@ -150,14 +151,14 @@ const visualizationCapability: AICapabilityAdapter = {
       }
     }]
   },
-  compile(input, path) {
-    if (input.goal === "create_visualization_stress_test") {
+  compile(input, path, operation) {
+    if (operation === "create_stress_scene") {
       return visualizationStressCommands(input as unknown as AIVisualizationStressIntent);
     }
-    if (input.goal === "update_visualization_stress_test") {
+    if (operation === "update_stress_scene") {
       return visualizationStressUpdateCommands(input as unknown as AIVisualizationStressUpdateIntent);
     }
-    throw new AIError("INVALID_VALUE", `${path}.goal`, "Unknown visualization operation", input.goal);
+    throw new AIError("INVALID_VALUE", `${path}.operation`, "Unknown visualization operation", operation);
   }
 };
 
@@ -188,7 +189,7 @@ export class AICapabilityRegistry {
     if (!operation) {
       throw new AIError("NOT_FOUND", `${path}.operation`, `Operation "${step.operation}" is not exposed by ${step.capability}`, step.operation);
     }
-    const command = adapter.compile(clone(step.input), `${path}.input`);
+    const command = adapter.compile(clone(step.input), `${path}.input`, operation.name);
     return Array.isArray(command) ? command : [command];
   }
 }

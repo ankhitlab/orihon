@@ -1,7 +1,28 @@
 export { AIError } from "./ai/errors.js";
-export { AICommandEngine, cameraFromPositions, createAICommandEngine } from "./ai/engine.js";
+export { AICommandEngine, cameraFromPositions, createAICommandEngine, createAICommandEngineFromSnapshot } from "./ai/engine.js";
 export { AICapabilityRegistry, createDefaultAICapabilityRegistry } from "./ai/capabilities.js";
 export { AIAgentRuntime, compactAIPlan, createAIAgentRuntime, validateAIIntent } from "./ai/runtime.js";
+export { AIAgentSession, createAIAgentSession } from "./ai/agent-session.js";
+export type {
+  AIApplyObjectMoveInput,
+  AIObserveBrowserOptions,
+  AIUserMapEvent,
+  AIUserMapListener
+} from "./ai/session-events.js";
+export { AIAgentSessionRegistry, createAIAgentSessionRegistry } from "./ai/session-registry.js";
+export {
+  createAISessionRecord,
+  createMemoryAISessionStore,
+  loadAIAgentSession,
+  restoreAIAgentSession,
+  saveAIAgentSession,
+  tryCreateAISessionRecord,
+  tryRestoreAIAgentSession
+} from "./ai/session-store.js";
+export { listAISessionTools } from "./ai/session-tools.js";
+export { createAIAGUIAdapter } from "./ai/ag-ui.js";
+export { installAIWebMCPTools } from "./ai/webmcp.js";
+export { AIBrowserBridge, createAIBrowserBridge } from "./ai/browser-bridge.js";
 export { createAILLMAgent } from "./ai/agent.js";
 export { createOpenAICompatibleAdapter } from "./ai/openai-compatible.js";
 export {
@@ -49,6 +70,7 @@ export type {
   AICapabilityDescription,
   AICapabilityOperationDescription,
   AICreateVisitRouteIntent,
+  AIShowPlacesIntent,
   AICameraSpec,
   AICommand,
   AICommandSuccess,
@@ -113,6 +135,33 @@ export type { AICommandEngineInitialState, AIEngineListener } from "./ai/engine.
 export type { AICapabilityAdapter } from "./ai/capabilities.js";
 export type { AIPlanPreviewResult } from "./ai/runtime.js";
 export type {
+  AIActor,
+  AIAgentSessionContext,
+  AIAgentSessionOptions,
+  AILocalMapState,
+  AIMapViewportBounds,
+  AIMapViewportState,
+  AIServerCapabilityGroup,
+  AISessionCapabilityGroup
+} from "./ai/agent-session.js";
+export type {
+  AISessionRecord,
+  AISessionStore,
+  RestoreAIAgentSessionOptions
+} from "./ai/session-store.js";
+export type { AISessionToolDescription, ListAISessionToolsOptions } from "./ai/session-tools.js";
+export type { AIAGUIAdapter, AIAGUIAdapterOptions, AIAGUIEvent } from "./ai/ag-ui.js";
+export type { AIWebMCPInstallResult, AIWebMCPModelContext, InstallAIWebMCPToolsOptions } from "./ai/webmcp.js";
+export { readMapViewport } from "./ai/agent-session.js";
+export type { AIHTTPCreateSessionInput, AIHTTPHandler, AIHTTPHandlerOptions, AIHTTPPlaceSearch } from "./ai/http.js";
+export type {
+  AIBrowserCapability,
+  AIBrowserCapabilityDescription,
+  AIBrowserCapabilityGroup,
+  AIBrowserCapabilityHandlerContext
+} from "./ai/browser-bridge.js";
+export { isBrowserCapabilityName } from "./ai/browser-bridge.js";
+export type {
   AILLMAdapter,
   AILLMAgent,
   AILLMAgentOptions,
@@ -137,13 +186,7 @@ export type {
   AIPlaceSearchSuccess,
   NominatimPlaceSearchOptions
 } from "./ai/place-search.js";
-export type {
-  AIIntentSchemaProfile,
-  AIIntentToolBridge,
-  AIIntentToolOptions,
-  AIIntentToolSuccess
-} from "./ai/semantic-tool.js";
-export type { AIHTTPHandler, AIHTTPHandlerOptions } from "./ai/http.js";
+export type { AIIntentSchemaProfile, AIIntentToolBridge, AIIntentToolOptions, AIIntentToolSuccess } from "./ai/semantic-tool.js";
 export type { AIMapProjectionOptions, AIProjectionSuccess } from "./ai/projection.js";
 export type {
   AIEngineSchemaProfile,

@@ -3,6 +3,10 @@
 Use this instruction when a model controls a live map through the provider-neutral tool returned
 by `createAITool(session)`. The same text is exported as `ORIHON_AI_SYSTEM_PROMPT`.
 
+For **`AIAgentSession`** (`session.call`, WebMCP, AG-UI) use
+[`AI_AGENT_SESSION_PROMPT.md`](./AI_AGENT_SESSION_PROMPT.md) instead — do not mix scene-command
+rules with agent-session tools unless the host exposes both.
+
 ```text
 You control an Orihon map through the orihon_execute tool.
 
@@ -94,3 +98,9 @@ The model never receives the API key of Orihon: it receives the tool schema. The
 the model-provider key in a server environment variable, sends tool arguments to `engine.execute()`,
 and returns the structured result to the model. The same engine can also accept trusted application
 commands over the HTTP adapter.
+
+## Agent session (intents + browser tools)
+
+When the host uses `createAIAgentSession`, register tools from `listAISessionTools(session)` (or
+`installAIWebMCPTools` / `createAIAGUIAdapter`). Full developer guide: [`AI_SESSIONS.md`](./AI_SESSIONS.md).
+Copy-paste system rules: [`AI_AGENT_SESSION_PROMPT.md`](./AI_AGENT_SESSION_PROMPT.md).

@@ -1,4 +1,5 @@
 import { AIError, toAIError } from "./errors.js";
+import { clone } from "./json.js";
 import type {
   AICommand,
   AICollectionCommand,
@@ -21,7 +22,12 @@ import type {
   AICameraSpec,
   AISceneSpec
 } from "./types.js";
-import { validateEngineCommand, validateObjectCommand } from "./engine-validation.js";
+import {
+  validateEngineCommand,
+  validateEngineViewport,
+  validateObjectCommand,
+  validateRoutePlanState
+} from "./engine-validation.js";
 import { pointCommandFeatures } from "./points.js";
 import { planAIRoute } from "./routes.js";
 import { validateLayer, validateScene } from "./validation.js";
@@ -32,10 +38,6 @@ export interface AICommandEngineInitialState {
 }
 
 export type AIEngineListener = (event: AIEngineEvent) => void;
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
 
 function deepMerge(target: unknown, patch: unknown): unknown {
   if (!target || typeof target !== "object" || Array.isArray(target)
@@ -130,6 +132,56 @@ export class AICommandEngine {
     });
   }
 
+  /**
+   * Replace live state from a snapshot without emitting events.
+   * Hosts use this for {@link createAICommandEngineFromSnapshot} / session stores.
+   */
+  replaceSnapshot(snapshot: AIEngineSnapshot): this {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new AIError("INVALID_TYPE", "$snapshot", "Expected an AIEngineSnapshot", snapshot);
+    }
+    if (snapshot.version !== 1) {
+      throw new AIError("INVALID_VALUE", "$snapshot.version", "Expected snapshot version 1", snapshot.version);
+    }
+    if (!Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0) {
+      throw new AIError("INVALID_VALUE", "$snapshot.revision", "Expected a non-negative safe integer", snapshot.revision);
+    }
+    const scene = validateScene(snapshot.scene, "$snapshot.scene");
+    const collections = snapshot.collections ?? {};
+    if (!collections || typeof collections !== "object" || Array.isArray(collections)) {
+      throw new AIError("INVALID_TYPE", "$snapshot.collections", "Expected an object keyed by collection name", collections);
+    }
+    const nextCollections = new Map<string, Map<string | number, AIObjectFeature>>();
+    for (const [collection, objects] of Object.entries(collections)) {
+      const command = validateObjectCommand(
+        { op: "objects.replace", collection, objects },
+        `$snapshot.collections.${collection}`
+      );
+      if (command.op !== "objects.replace") throw new Error("Unexpected validated object command");
+      nextCollections.set(collection, featureMap(command.objects));
+    }
+    const nextRoutes = new Map<string, AIRoutePlanState>();
+    if (snapshot.routes !== undefined) {
+      if (!snapshot.routes || typeof snapshot.routes !== "object" || Array.isArray(snapshot.routes)) {
+        throw new AIError("INVALID_TYPE", "$snapshot.routes", "Expected an object keyed by route id", snapshot.routes);
+      }
+      for (const [id, route] of Object.entries(snapshot.routes)) {
+        nextRoutes.set(id, validateRoutePlanState(route, `$snapshot.routes.${id}`));
+      }
+    }
+    const nextViewport = snapshot.viewport === undefined
+      ? undefined
+      : validateEngineViewport(snapshot.viewport, "$snapshot.viewport");
+    this.#scene = scene;
+    this.#collections.clear();
+    for (const [name, objects] of nextCollections) this.#collections.set(name, objects);
+    this.#routes.clear();
+    for (const [id, route] of nextRoutes) this.#routes.set(id, route);
+    this.#viewport = nextViewport;
+    this.#revision = snapshot.revision;
+    return this;
+  }
+
   /** Validate an ordered command set against a private fork without mutating live state. */
   previewTransaction(
     commands: readonly unknown[],
@@ -161,15 +213,24 @@ export class AICommandEngine {
   ): AIResult<AIEngineTransactionSuccess> {
     try {
       this.#assertBaseRevision(options.baseRevision);
+      const baseRevision = this.#revision;
       const { engine: staged, events } = this.#stageCommands(commands);
       const normalized = commands.map((command) => validateEngineCommand(command));
-      const revision = this.#revision + 1;
+      const revision = baseRevision + 1;
       this.#scene = clone(staged.#scene);
       this.#collections.clear();
       for (const [name, objects] of staged.#collections) this.#collections.set(name, featureMap([...objects.values()]));
       this.#routes.clear();
       for (const [id, route] of staged.#routes) this.#routes.set(id, clone(route));
-      this.#viewport = staged.#viewport ? { ...clone(staged.#viewport), revision } : undefined;
+      // A viewport hint expires with the revision that produced it. The fork numbers
+      // revisions per staged command, so only a hint stamped above the base revision was
+      // actually produced by this transaction; anything older is carried over untouched
+      // so getSnapshot() keeps dropping it instead of re-fitting the camera forever.
+      this.#viewport = staged.#viewport
+        ? (staged.#viewport.revision > baseRevision
+          ? { ...clone(staged.#viewport), revision }
+          : clone(staged.#viewport))
+        : undefined;
       this.#revision = revision;
       const snapshot = this.getSnapshot();
       const event = {
@@ -233,6 +294,7 @@ export class AICommandEngine {
 
   #executeSceneCommand(command: Exclude<AICommand, { op: "query" }>): AIEngineEvent {
     const next = clone(this.#scene);
+    let clearedCollections = false;
     if (command.op === "set_view") next.camera = { center: clone(command.center), zoom: command.zoom };
     else if (command.op === "fly_to") {
       next.camera = { center: clone(command.center), zoom: command.zoom ?? next.camera?.zoom ?? 0 };
@@ -251,8 +313,12 @@ export class AICommandEngine {
       next.layers.splice(index, 1);
     } else if (command.op === "clear") {
       if (command.ids === undefined) {
+        // A full clear resets the whole AI-owned map, the same surface
+        // points.replace{clearMap:true} resets: scene layers, collections and routes.
+        // Leaving collections behind would keep markers carrying routeId/visitOrder
+        // annotations written by routes that no longer exist.
         next.layers = [];
-        this.#routes.clear();
+        clearedCollections = true;
       }
       else {
         const selected = new Set(command.ids);
@@ -274,12 +340,20 @@ export class AICommandEngine {
       if (command.scene.basemap !== undefined) next.basemap = clone(command.scene.basemap);
     }
     this.#scene = validateScene(next);
+    if (clearedCollections) {
+      this.#collections.clear();
+      this.#routes.clear();
+      this.#viewport = undefined;
+    }
     this.#revision++;
     return { type: "scene", revision: this.#revision, command: clone(command) };
   }
 
   #executeCollectionCommand(command: AICollectionCommand): AIEngineEvent {
     const replaceMap = command.op === "points.replace" && command.clearMap === true;
+    // clearMap drops every route, including those owned by other collections, so the
+    // event has to name them all or projections keep drawing orphaned polylines.
+    const clearedRouteIds = replaceMap ? [...this.#routes.keys()] : [];
     const affectedRoutes = replaceMap
       ? []
       : [...this.#routes.values()].filter((route) => route.collection === command.collection).map(clone);
@@ -330,7 +404,7 @@ export class AICommandEngine {
       this.#collections.clear();
       this.#routes.clear();
     }
-    const invalidatedRouteIds = new Set(affectedRoutes.map(({ id }) => id));
+    const invalidatedRouteIds = new Set([...clearedRouteIds, ...affectedRoutes.map(({ id }) => id)]);
     for (const routeId of invalidatedRouteIds) this.#routes.delete(routeId);
     if (invalidatedRouteIds.size > 0) {
       for (const [id, feature] of next) {
@@ -389,7 +463,11 @@ export class AICommandEngine {
       throw new AIError("NOT_FOUND", "$command.collection", `Collection "${command.collection}" does not exist`, command.collection);
     }
     const planned = planAIRoute(command, [...collection.values()]);
+    // Carry a viewport hint forward only while it is still live (set by the current
+    // revision, e.g. points.replace + fit immediately before this plan). Reviving an
+    // expired hint would re-fit the camera long after the user panned away.
     const inheritedViewport = this.#viewport?.collection === command.collection
+      && this.#viewport.revision === this.#revision
       ? clone(this.#viewport)
       : undefined;
     this.#collections.set(command.collection, featureMap(planned.objects));
@@ -443,4 +521,11 @@ export class AICommandEngine {
 
 export function createAICommandEngine(initial?: AICommandEngineInitialState): AICommandEngine {
   return new AICommandEngine(initial);
+}
+
+/** Rebuild an engine from a revisioned snapshot (no events). */
+export function createAICommandEngineFromSnapshot(snapshot: AIEngineSnapshot): AICommandEngine {
+  const engine = createAICommandEngine();
+  engine.replaceSnapshot(snapshot);
+  return engine;
 }
