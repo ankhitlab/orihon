@@ -1,0 +1,40 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>ObjectManager scene regression profile</title>
+<link rel="stylesheet" href="../dist/orihon.css"><style>body{margin:0;font:14px system-ui}#map{height:70vh;background:#e7eef3}pre{white-space:pre-wrap;padding:16px;margin:0}h1{font-size:18px;margin:12px}</style>
+<h1>Сцена: иконки, подписи и линии; изменения 1 / 100 / 1000 объектов</h1><div id="map"></div><pre id="results">Выполняется…</pre>
+<script type="module">
+import { createMap } from '../dist/core.js';
+import { ObjectManager } from '../dist/services/object-manager.js';
+const output = document.getElementById('results');
+const count = Math.max(2000, Math.min(1000000, Number(new URLSearchParams(location.search).get('count')) || 10000));
+const results = [];
+const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+try {
+  const map = createMap('map', { center: {lat:0,lng:0}, zoom:5, controls:false });
+  let styleCalls = 0;
+  const manager = new ObjectManager({ clusterize:false, clusterRenderer:'webgl', sceneFeatures:true, declutter:true,
+    style(object) { styleCalls++; return object.geometry?.type === 'LineString'
+      ? { line:{ stroke:object.properties.active?'#d97706':'#2563eb',strokeWidth:2 } }
+      : { icon:'dot',size:10,fill:object.properties.active?'#d97706':'#0f766e',label:{text:String(object.id),fontSize:11} }; }
+  });
+  const icon=document.createElement('canvas'); icon.width=icon.height=16;
+  const context=icon.getContext('2d'); context.fillStyle='white'; context.beginPath();context.arc(8,8,7,0,Math.PI*2);context.fill();
+  manager.registerIcon('dot',icon);
+  let start=performance.now();
+  for(let base=0;base<count;base+=10000) {
+    const objects=Array.from({length:Math.min(10000,count-base)},(_,j)=>{
+      const id=base+j, lng=id<2000?(id%50)/6-4:80+(id%50)/6, lat=Math.floor(id%2000/50)/5-4;
+      return {id,geometry:id%4===0?{type:'LineString',coordinates:[[lng,lat],[lng+.08,lat+.08]]}:{type:'Point',coordinates:[lng,lat]},properties:{active:false}};
+    });
+    manager.add(objects); await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const ingestMs=performance.now()-start; start=performance.now();manager.addTo(map);await frame();await frame();
+  results.push({count,ingestMs:+ingestMs.toFixed(2),firstPaintMs:+(performance.now()-start).toFixed(2),initialStyleCalls:styleCalls});
+  for(const changed of [1,100,1000]) {
+    styleCalls=0;const updates=Array.from({length:changed},(_,id)=>({...manager.getObject(id),properties:{active:true}}));
+    start=performance.now();manager.beginBulk();manager.updateObjects(updates);manager.endBulk();
+    const updateMs=performance.now()-start;await frame();await frame();
+    results.push({changed,updateMs:+updateMs.toFixed(2),styleCalls});
+  }
+  output.textContent=JSON.stringify(results,null,2);document.body.dataset.state='passed';
+} catch(error) { output.textContent=String(error.stack||error);document.body.dataset.state='failed'; }
+</script></html>

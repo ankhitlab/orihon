@@ -313,7 +313,7 @@ const CLUSTER_WASM_RECYCLE_MEMORY_BYTES = 192 * 1024 * 1024;
  * It intercepts only `clusterIndex`, attempts the whole-index WASM kernel,
  * and delegates to the original JS worker handler on any unsupported/error path.
  */
-function clusterIndexWasmWorkerAddonMain(base64: string, recycleMemoryBytes: number): void {
+function clusterIndexWasmWorkerAddonMain(base64: string, recycleMemoryBytes: number, decodeBase64: typeof decodeBase64Bytes): void {
   const scope = globalThis as typeof globalThis & {
     onmessage: ((event: MessageEvent) => void) | null;
     postMessage: (message: unknown, transfer?: Transferable[]) => void;
@@ -356,12 +356,6 @@ function clusterIndexWasmWorkerAddonMain(base64: string, recycleMemoryBytes: num
     const n = Number(value);
     if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(30, Math.floor(n)));
-  };
-  const decodeBase64 = (value: string): Uint8Array<ArrayBuffer> => {
-    const raw = atob(value);
-    const out = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-    return out;
   };
   const load = () => {
     if (state !== undefined) return state;
@@ -628,5 +622,5 @@ function clusterIndexWasmWorkerAddonMain(base64: string, recycleMemoryBytes: num
 }
 
 export function clusterIndexWasmWorkerAddonSource(): string {
-  return `\n;(${clusterIndexWasmWorkerAddonMain.toString()})(${JSON.stringify(CLUSTER_INDEX_WASM_BASE64)},${CLUSTER_WASM_RECYCLE_MEMORY_BYTES});`;
+  return `\n;(${clusterIndexWasmWorkerAddonMain.toString()})(${JSON.stringify(CLUSTER_INDEX_WASM_BASE64)},${CLUSTER_WASM_RECYCLE_MEMORY_BYTES},${decodeBase64Bytes.toString()});`;
 }

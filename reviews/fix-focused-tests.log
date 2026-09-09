@@ -1,0 +1,25 @@
+✔ property updates synchronize index values and validate the whole batch before mutation (3.5874ms)
+✔ GPU topology changes do not discard the rest of an update batch (0.745ms)
+✔ bulk update/remove invalidates once and empty endBulk is a no-op (0.4323ms)
+✔ points.replace replaces one collection while preserving other collections (2.4795ms)
+✔ JSON properties preserve own __proto__ without changing prototypes (0.1799ms)
+✔ agent abort stops remaining tools and tool budget bounds a single response (0.8385ms)
+✔ AI updates avoid serializing untouched features; summaries are bounded and copies stay isolated (16.9152ms)
+✔ reconciliation preserves retained state, references and no-op versions (5.2247ms)
+✔ SSE bounds a stalled reader and ends with an explicit snapshot resync requirement (26.791ms)
+✔ headless object queries page results, isolate properties and reject expired cursors (2.5276ms)
+✔ scene bbox index retains crossing polygons and dateline points (0.7075ms)
+✔ scene updates resolve only changed visible object styles and keep untouched packed geometry (2.2369ms)
+✔ map.query maps renderer hits to managed objects without a second hit-test (1.3992ms)
+✔ source batches patch GPU points once without rebuilding packed topology (1.0557ms)
+✔ symbol patches upload one 16-float record and preserve adjacent records and motion attributes (0.6272ms)
+✔ multi-command projection uses deltas and rolls back a failed transaction before source publication (2.8165ms)
+✔ failed transaction restores contents of an existing route layer (1.5329ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 265.8596

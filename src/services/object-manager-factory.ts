@@ -18,6 +18,8 @@ export type PointObjectManagerOptions = MarkerCollectionOptions & {
   source?: never;
   debounceMs?: never;
   replace?: never;
+  reconcile?: never;
+  equals?: never;
   clusterize?: never;
   clusterRenderer?: never;
   style?: never;
@@ -28,6 +30,8 @@ export type LocalObjectManagerOptions = ObjectManagerOptions & {
   points?: never;
   debounceMs?: never;
   replace?: never;
+  reconcile?: never;
+  equals?: never;
 };
 
 export type UnifiedObjectManagerOptions =
@@ -66,8 +70,8 @@ export function objectManager(options: UnifiedObjectManagerOptions = {}): Object
     if (typeof options.loader !== "function") throw new TypeError("objectManager loader must be a function");
     return new RemoteObjectManager(options as RemoteObjectManagerOptions);
   }
-  if (options.debounceMs !== undefined || options.replace !== undefined) {
-    throw new TypeError("objectManager debounceMs and replace require loader mode");
+  if (options.debounceMs !== undefined || options.replace !== undefined || options.reconcile !== undefined || options.equals !== undefined) {
+    throw new TypeError("objectManager debounceMs, replace, reconcile and equals require loader mode");
   }
   if ("points" in options) {
     if (!options.points || typeof options.points[Symbol.iterator] !== "function") throw new TypeError("objectManager points must be an iterable of named coordinates");

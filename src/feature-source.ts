@@ -1,4 +1,5 @@
 import type { IdentifiedGeoJSONFeature } from "./geojson-types.js";
+import { diffRecords } from "./services/record-diff.js";
 import type {
   FeatureId,
   FeatureSourceChange,
@@ -116,6 +117,20 @@ implements ReadonlyFeatureSource<TFeature> {
     for (const [id, feature] of next) this.#features.set(id, feature);
     this.#emit({ type: "reset" });
     return this;
+  }
+
+  /** Replace by stable-id deltas, preserving unchanged feature references and avoiding no-op notifications. */
+  reconcile(input: FeatureSourceInput<TFeature>, equals?: (previous: TFeature, next: TFeature) => boolean): this {
+    const prepared = this.#prepare(input, new Map());
+    const { added, updated, removed } = diffRecords(this.#features, prepared.values(), feature => feature.id, equals);
+    return this.batch(() => {
+      if (removed.length) this.remove(removed);
+      for (const feature of updated) {
+        this.#features.set(feature.id, feature);
+        this.#emit({ type: "update", features: [feature] });
+      }
+      if (added.length) this.addMany(added);
+    });
   }
 
   clear(): this {

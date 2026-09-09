@@ -80,7 +80,28 @@ export class WebGLPolygonBatch extends InteractiveLayer<Required<WebGLPolygonBat
   }
 
   addPolygon(input: PolygonBatchInput): this {
-    if (!input.rings?.length) return this;
+    const prepared = this.preparePolygon(input);
+    if (prepared) { this.polygons.push(prepared); this._dataVersion++; }
+    return this;
+  }
+
+  /** Replace selected records without re-normalizing unchanged geometry. */
+  patchPolygons(updates: Iterable<{ index: number; value: PolygonBatchInput }>): this {
+    const prepared = [...updates].map(({ index, value }) => {
+      if (!Number.isInteger(index) || index < 0 || index >= this.polygons.length) throw new RangeError("Invalid batch index");
+      const record = this.preparePolygon(value);
+      if (!record) throw new TypeError("Invalid batch geometry");
+      return { index, record };
+    });
+    if (!prepared.length) return this;
+    for (const { index, record } of prepared) this.polygons[index] = record;
+    this._dataVersion++;
+    this.render();
+    return this;
+  }
+
+  private preparePolygon(input: PolygonBatchInput): StoredPolygon | null {
+    if (!input.rings?.length) return null;
     const rings: Float64Array[] = [];
     let bbox: readonly [number, number, number, number] | null = null;
     for (const ring of input.rings) {
@@ -101,7 +122,7 @@ export class WebGLPolygonBatch extends InteractiveLayer<Required<WebGLPolygonBat
         }
       }
     }
-    if (!rings.length || !bbox) return this;
+    if (!rings.length || !bbox) return null;
     const style = {
       fill: input.style?.fill ?? "#0f766e",
       fillOpacity: clampOpacity(input.style?.fillOpacity ?? 0.25),
@@ -111,16 +132,14 @@ export class WebGLPolygonBatch extends InteractiveLayer<Required<WebGLPolygonBat
     };
     const fill = parseCssColor(style.fill, { r: 15, g: 118, b: 110 });
     const stroke = parseCssColor(style.stroke, { r: 15, g: 118, b: 110 });
-    this.polygons.push({
+    return {
       rings,
       style,
       id: input.id ?? null,
       bbox,
       fillCss: `rgba(${fill.r},${fill.g},${fill.b},${style.fillOpacity})`,
       strokeCss: `rgba(${stroke.r},${stroke.g},${stroke.b},${style.strokeOpacity})`
-    });
-    this._dataVersion++;
-    return this;
+    };
   }
 
   override onAdd(map: Orihon): void {

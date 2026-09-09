@@ -16,6 +16,21 @@ import {
 
 const EMPTY_TILE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
+/**
+ * How long the tile level waits before following a changed camera zoom. Two
+ * frames: short enough that a discrete zoom is not made to wait, long enough to
+ * see whether the camera has come to rest or is still gliding.
+ */
+const ZOOM_SWITCH_DEBOUNCE_MS = 32;
+
+/**
+ * Upper bound on deferring while the camera is still gliding. A long slow zoom
+ * refreshes a few times a second instead of staying stretched the whole way.
+ */
+const ZOOM_SWITCH_MAX_DEFER_MS = 250;
+
+const nowMs = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
 export function modulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -196,6 +211,10 @@ export class TileLayer<TEvents extends object = {}> extends GridLayer<ResolvedTi
   #queue: TileRecord[] = [];
   #pendingSourceZoom: number | null = null;
   #zoomSwitchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Camera zoom when the pending switch was last armed — "did it move?". */
+  #zoomSwitchArmedZoom: number | null = null;
+  /** Wall clock past which a still-gliding camera stops deferring the switch. */
+  #zoomSwitchDeadline = 0;
   #fillFrame = 0;
   #fillPending = false;
   #rect: TileRect | null = null;
@@ -463,17 +482,42 @@ export class TileLayer<TEvents extends object = {}> extends GridLayer<ResolvedTi
     this.#fillFrame = 0;
   }
 
+  /**
+   * Trailing debounce on the *target* level, with the camera itself as the
+   * signal for how long to wait.
+   *
+   * A discrete zoom is over before the first timer expires, so the level follows
+   * one debounce later instead of sitting out a fixed delay. A glide — wheel,
+   * `flyTo`, a scripted sweep — is still moving when the timer expires, so the
+   * switch is deferred again and the levels it merely passes through are never
+   * fetched. `ZOOM_SWITCH_MAX_DEFER_MS` bounds that, so a slow glide still
+   * refreshes rather than staying stretched to the end.
+   */
   #scheduleZoomSwitch(sourceZoom: number): void {
-    this.#pendingSourceZoom = sourceZoom;
+    if (sourceZoom !== this.#pendingSourceZoom) {
+      this.#clearZoomSwitchTimer();
+      this.#pendingSourceZoom = sourceZoom;
+      this.#zoomSwitchDeadline = nowMs() + ZOOM_SWITCH_MAX_DEFER_MS;
+    }
     if (this.#zoomSwitchTimer != null) return;
+    this.#zoomSwitchArmedZoom = this.map ? this.map.zoom : null;
     this.#zoomSwitchTimer = setTimeout(() => {
       this.#zoomSwitchTimer = null;
       const pending = this.#pendingSourceZoom;
+      if (pending == null || !this.map) {
+        this.#pendingSourceZoom = null;
+        return;
+      }
+      if (this.map.zoom !== this.#zoomSwitchArmedZoom && nowMs() < this.#zoomSwitchDeadline) {
+        // Camera still gliding: re-arm rather than stop on a level in passing.
+        this.#scheduleZoomSwitch(pending);
+        return;
+      }
       this.#pendingSourceZoom = null;
-      if (pending == null || !this.map || pending === this.#tileZoom) return;
+      if (pending === this.#tileZoom) return;
       this.#switchZoom(pending);
       this.render();
-    }, 140);
+    }, ZOOM_SWITCH_DEBOUNCE_MS);
   }
 
   #clearZoomSwitchTimer(): void {

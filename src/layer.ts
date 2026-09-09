@@ -27,6 +27,12 @@ export interface QueryOptions {
 
 export type ResolvedQueryOptions = Required<QueryOptions>;
 
+const queryOwners = new WeakMap<Layer, (hit: QueryHit) => QueryHit>();
+/** @internal Map renderer hits to domain objects without running hit testing twice. */
+export function setLayerQueryOwner(layer: Layer, owner: (hit: QueryHit) => QueryHit): void { queryOwners.set(layer, owner); }
+/** @internal */
+export function resolveLayerQueryHit(hit: QueryHit): QueryHit { return queryOwners.get(hit.layer)?.(hit) ?? hit; }
+
 /** @internal Writable options view for in-package updates outside the class. */
 export function layerOptions<T extends LayerOptions>(layer: Layer<T>): T {
   return layer.options as T;

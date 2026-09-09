@@ -1,5 +1,6 @@
 import type { Orihon } from "../map.js";
-import { heatLayer, type HeatLayer } from "../layers/heat.js";
+import type { HeatLayer } from "../layers/heat.js";
+import { currentHeatFactory } from "./object-heat-loader.js";
 import type { HeatBackend, HeatMode, HeatEvaluation } from "./heat.js";
 import { webglSymbolLayer, type WebGLSymbolLayer, type WebGLSymbolInstance } from "../layers/webgl-symbol-layer.js";
 import { webglStyledPathBatch, type WebGLStyledPathBatch } from "../layers/webgl-styled-path-batch.js";
@@ -28,6 +29,7 @@ import type {
 } from "./object-types.js";
 import { ObjectDirtyFlags } from "./object-types.js";
 import { normalizeLabel } from "./object-style-helpers.js";
+import { ObjectBoundsIndex } from "./object-bounds-index.js";
 export { normalizeLabel, styleTint } from "./object-style-helpers.js";
 
 export type ObjectVisualizationMode = "objects" | "clusters" | "heatmap" | "auto";
@@ -130,6 +132,9 @@ export class ObjectSceneController {
   readonly trails = new ObjectTrailStore();
   readonly motions = new Map<ObjectId, ObjectMotionState>();
   readonly geometries = new Map<ObjectId, NormalizedGeometry>();
+  readonly boundsIndex = new ObjectBoundsIndex();
+  /** Changes whenever rendered caches are discarded. */
+  layerGeneration = 0;
   readonly dirty = new Map<ObjectId, number>();
   searchIndex: ObjectSearchIndex | null = null;
   timeIndex: ObjectTimeIndex | null = null;
@@ -155,6 +160,9 @@ export class ObjectSceneController {
   private map: Orihon | null = null;
   private activeVisualization: "objects" | "clusters" | "heatmap" = "objects";
   private motionRaf = 0;
+  private syncedSymbols: WebGLSymbolInstance[] = [];
+  private syncedPaths: Parameters<WebGLStyledPathBatch["setPaths"]>[0] extends Iterable<infer T> ? T[] : never = [];
+  private syncedPolygons: Parameters<WebGLPolygonBatch["setPolygons"]>[0] extends Iterable<infer T> ? T[] : never = [];
   /** Count of LineString/Polygon geometries (for skipping pointless scene sync). */
   private nonPointGeometryCount = 0;
 
@@ -194,6 +202,7 @@ export class ObjectSceneController {
 
   clear(): void {
     this.geometries.clear();
+    this.boundsIndex.clear();
     this.nonPointGeometryCount = 0;
     this.dirty.clear();
     this.motions.clear();
@@ -209,6 +218,8 @@ export class ObjectSceneController {
   }
 
   clearNonHeatLayers(): void {
+    this.layerGeneration++;
+    this.syncedSymbols = []; this.syncedPaths = []; this.syncedPolygons = [];
     this.symbolLayer?.remove();
     this.pathBatch?.remove();
     this.polygonBatch?.remove();
@@ -257,8 +268,10 @@ export class ObjectSceneController {
 
   setGeometry(id: ObjectId, geometry: NormalizedGeometry): void {
     const prev = this.geometries.get(id);
+    if (prev === geometry) return;
     if (prev && prev.kind !== "Point") this.nonPointGeometryCount = Math.max(0, this.nonPointGeometryCount - 1);
     this.geometries.set(id, geometry);
+    this.boundsIndex.set(id, geometry.bbox);
     if (geometry.kind !== "Point") this.nonPointGeometryCount++;
     if (!prev || prev.kind !== geometry.kind) {
       this.markDirty(id, ObjectDirtyFlags.Geometry | ObjectDirtyFlags.Position);
@@ -275,11 +288,13 @@ export class ObjectSceneController {
     const prev = this.geometries.get(id);
     if (prev && prev.kind !== "Point") this.nonPointGeometryCount = Math.max(0, this.nonPointGeometryCount - 1);
     this.geometries.delete(id);
+    this.boundsIndex.remove(id);
+    this.markDirty(id, ObjectDirtyFlags.Geometry);
   }
 
   removeObject(id: ObjectId): void {
     this.removeGeometry(id);
-    this.dirty.delete(id);
+    this.markDirty(id, ObjectDirtyFlags.Geometry);
     this.motions.delete(id);
     this.trails.remove(id);
     this.searchIndex?.remove(id);
@@ -293,6 +308,7 @@ export class ObjectSceneController {
   /** Reset geometry bookkeeping after a bulk `geometries.clear()`. */
   resetGeometryStats(): void {
     this.nonPointGeometryCount = 0;
+    this.boundsIndex.clear();
   }
 
   resolveVisualization(zoom: number): "objects" | "clusters" | "heatmap" {
@@ -384,6 +400,7 @@ export class ObjectSceneController {
     map: Orihon
   ): void {
     if (!instances.length) {
+      this.syncedSymbols = [];
       this.symbolLayer?.remove();
       this.symbolLayer = null;
       return;
@@ -393,7 +410,15 @@ export class ObjectSceneController {
       this.symbolLayer.setAtlas(this.atlas);
       this.symbolLayer.addTo(map);
     }
-    this.symbolLayer.setInstances(instances);
+    if (this.syncedSymbols.length === instances.length && instances.every((item, i) => item.id === this.syncedSymbols[i].id)) {
+      let changed = false;
+      instances.forEach((item, index) => {
+        if (item === this.syncedSymbols[index]) return;
+        this.symbolLayer!.patchInstance(index, item); changed = true;
+      });
+      if (changed) this.symbolLayer.render();
+    } else this.symbolLayer.setInstances(instances);
+    this.syncedSymbols = instances;
   }
 
   /** Patch in-flight GPU motion/rotation without rebuilding the whole symbol batch. */
@@ -419,25 +444,30 @@ export class ObjectSceneController {
     }
   }
 
+  private createHeatLayer(points: Array<[number, number, number?]>): HeatLayer {
+    const factory = currentHeatFactory();
+    if (!factory) throw new Error('ObjectManager heat renderer is not loaded');
+    return factory(points, objectHeatLayerOptions({
+      display: this.heatmapDisplay,
+      labels: this.heatmapIsolineLabels,
+      backend: this.heatmapBackend,
+      evaluation: this.heatmapEvaluation,
+      isolineStep: this.heatmapIsolineStep,
+      referenceMax: this.heatmapReferenceMax
+    }));
+  }
+
   syncHeat(
     points: Array<[number, number, number?]>,
     map: Orihon
   ): void {
     const hot = points.filter((p) => (p[2] == null ? 1 : Number(p[2])) > 1e-6);
     if (!hot.length) {
-      this.heatLayer?.remove();
-      this.heatLayer = null;
+      this.clearHeat();
       return;
     }
     if (!this.heatLayer) {
-      this.heatLayer = heatLayer(hot, objectHeatLayerOptions({
-        display: this.heatmapDisplay,
-        labels: this.heatmapIsolineLabels,
-        backend: this.heatmapBackend,
-        evaluation: this.heatmapEvaluation,
-        isolineStep: this.heatmapIsolineStep,
-        referenceMax: this.heatmapReferenceMax
-      }));
+      this.heatLayer = this.createHeatLayer(hot);
       this.heatLayer.addTo(map);
       return;
     }
@@ -451,19 +481,11 @@ export class ObjectSceneController {
     weights?: ArrayLike<number> | null
   ): void {
     if (pointCount <= 0) {
-      this.heatLayer?.remove();
-      this.heatLayer = null;
+      this.clearHeat();
       return;
     }
     if (!this.heatLayer) {
-      this.heatLayer = heatLayer([], objectHeatLayerOptions({
-        display: this.heatmapDisplay,
-        labels: this.heatmapIsolineLabels,
-        backend: this.heatmapBackend,
-        evaluation: this.heatmapEvaluation,
-        isolineStep: this.heatmapIsolineStep,
-        referenceMax: this.heatmapReferenceMax
-      }));
+      this.heatLayer = this.createHeatLayer([]);
       this.heatLayer.addTo(map);
     }
     this.heatLayer.setPackedMercator(merc64, pointCount, weights);
@@ -475,6 +497,7 @@ export class ObjectSceneController {
   ): void {
     const list = [...paths];
     if (!list.length) {
+      this.syncedPaths = [];
       this.pathBatch?.remove();
       this.pathBatch = null;
       return;
@@ -483,7 +506,10 @@ export class ObjectSceneController {
       this.pathBatch = webglStyledPathBatch({ pane: "overlay", interactive: true });
       this.pathBatch.addTo(map);
     }
-    this.pathBatch.setPaths(list);
+    if (list.length === this.syncedPaths.length && list.every((item, i) => item.id === this.syncedPaths[i].id)) {
+      this.pathBatch.patchPaths(list.flatMap((value, index) => value === this.syncedPaths[index] ? [] : [{ index, value }]));
+    } else this.pathBatch.setPaths(list);
+    this.syncedPaths = list;
   }
 
   syncPolygons(
@@ -492,6 +518,7 @@ export class ObjectSceneController {
   ): void {
     const list = [...polygons];
     if (!list.length) {
+      this.syncedPolygons = [];
       this.polygonBatch?.remove();
       this.polygonBatch = null;
       return;
@@ -500,7 +527,10 @@ export class ObjectSceneController {
       this.polygonBatch = webglPolygonBatch({ pane: "overlay", interactive: true });
       this.polygonBatch.addTo(map);
     }
-    this.polygonBatch.setPolygons(list);
+    if (list.length === this.syncedPolygons.length && list.every((item, i) => item.id === this.syncedPolygons[i].id)) {
+      this.polygonBatch.patchPolygons(list.flatMap((value, index) => value === this.syncedPolygons[index] ? [] : [{ index, value }]));
+    } else this.polygonBatch.setPolygons(list);
+    this.syncedPolygons = list;
   }
 
   setLabelAnchors(anchors: ObjectLabelAnchor[]): void {
@@ -687,6 +717,8 @@ export class ObjectSceneController {
         this.motionRaf = 0;
         return;
       }
+      const now = performance.now();
+      for (const [id, motion] of this.motions) if (now >= motion.startTimeMs + motion.durationMs) this.motions.delete(id);
       this.symbolLayer?.render();
       this.motionRaf = requestAnimationFrame(tick);
     };

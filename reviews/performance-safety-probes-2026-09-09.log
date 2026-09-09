@@ -1,0 +1,10 @@
+CONFIRMED stale spatial record after property update
+CONFIRMED update inserts unknown id beyond maxObjects
+CONFIRMED bulk update/remove invalidate before endBulk (3 invalidations)
+CONFIRMED GPU update loses batch suffix after non-point
+CONFIRMED points.replace rejects same ids and retains old ids
+CONFIRMED JSON validator changes local prototype; no global prototype pollution
+CONFIRMED agent executes next tool after cancellation
+{"count":1000,"updateMs":1.5,"updateCalls":1003,"contextMs":2.5,"contextCalls":1004}
+{"count":10000,"updateMs":13.08,"updateCalls":10003,"contextMs":19.16,"contextCalls":10004}
+{"count":50000,"updateMs":76.27,"updateCalls":50003,"contextMs":116.93,"contextCalls":50004}

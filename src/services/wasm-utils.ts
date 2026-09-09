@@ -10,7 +10,7 @@ export function decodeBase64Bytes(value: string): Uint8Array<ArrayBuffer> {
 export function tryGrowWasmMemory(memory: WebAssembly.Memory, bytes: number): boolean {
   if (bytes <= memory.buffer.byteLength) return true;
   try {
-    memory.grow(Math.ceil((bytes - memory.buffer.byteLength) / 65_536));
+    growWasmMemory(memory, bytes);
     return bytes <= memory.buffer.byteLength;
   } catch {
     return false;

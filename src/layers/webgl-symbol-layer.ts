@@ -75,6 +75,8 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
   private instanceData = new Float32Array(0);
   private count = 0;
   private dirty = true;
+  private readonly idToIndex = new Map<string | number, number>();
+  private readonly patched = new Set<number>();
   private _interactionUnsub: (() => void) | null = null;
   private fallbackIcon: PackedIcon = {
     name: "",
@@ -116,7 +118,10 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
       if (instance.startTimeMs !== undefined) nonNegativeFinite(instance.startTimeMs, "startTimeMs");
       nonNegativeFinite(instance.durationMs ?? 0, "durationMs");
     }
-    this.instances = next;
+    this.instances = next.map(instance => ({ ...instance }));
+    this.idToIndex.clear();
+    this.instances.forEach((instance, index) => { if (instance.id != null) this.idToIndex.set(instance.id, index); });
+    this.patched.clear();
     this.count = this.instances.length;
     this.dirty = true;
     this.render();
@@ -130,19 +135,22 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     if (patch.durationMs !== undefined) nonNegativeFinite(patch.durationMs, "durationMs");
     const current = this.instances[index];
     if (!current) return this;
+    const previousId = current.id;
     Object.assign(current, patch);
+    if (previousId !== current.id) {
+      if (previousId != null) this.idToIndex.delete(previousId);
+      if (current.id != null) this.idToIndex.set(current.id, index);
+    }
     this.#writeInstance(index, current);
-    this.dirty = true;
+    this.patched.add(index);
     return this;
   }
 
   patchById(id: string | number, patch: Partial<WebGLSymbolInstance>): boolean {
-    for (let i = 0; i < this.instances.length; i++) {
-      if (this.instances[i]?.id !== id) continue;
-      this.patchInstance(i, patch);
-      return true;
-    }
-    return false;
+    const index = this.idToIndex.get(id);
+    if (index == null) return false;
+    this.patchInstance(index, patch);
+    return true;
   }
 
   getCount(): number {
@@ -150,6 +158,7 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
   }
 
   override onAdd(map: Orihon): void {
+    this.dirty = true;
     assertMercator(map.crs);
     super.onAdd(map);
     const pane = this.getPane();
@@ -227,9 +236,9 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
   }
 
   #packInstances(): void {
-    const stride = 14;
+    const stride = 16;
     if (this.instanceData.length < this.count * stride) {
-      this.instanceData = new Float32Array(Math.max(this.count * stride, 14));
+      this.instanceData = new Float32Array(Math.max(this.count * stride, stride));
     }
     for (let i = 0; i < this.count; i++) this.#writeInstance(i, this.instances[i]);
   }
@@ -238,7 +247,7 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     const packed = this.atlas?.getPacked(inst.icon) ?? this.fallbackIcon;
     const merc = projectMercator01(inst.lat, inst.lng);
     const prev = projectMercator01(inst.prevLat ?? inst.lat, inst.prevLng ?? inst.lng);
-    const o = index * 14;
+    const o = index * 16;
     const data = this.instanceData;
     data[o] = merc.x;
     data[o + 1] = merc.y;
@@ -254,8 +263,8 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     data[o + 11] = inst.tint[1];
     data[o + 12] = inst.tint[2];
     data[o + 13] = inst.tint[3] * (Number.isFinite(inst.opacity) ? inst.opacity : 1);
-    // motion start/durationMs packed into unused UV corners via extra attrs in shader buffer:
-    // We append motion after tint by expanding — keep in parallel arrays for simplicity.
+    data[o + 14] = Number(inst.startTimeMs) || 0;
+    data[o + 15] = Math.max(0, Number(inst.durationMs) || 0);
   }
 
   #initGl(): void {
@@ -358,6 +367,7 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.atlasVersion = this.atlas.version;
+    this.dirty = true;
   }
 
   #renderWebgl(dpr: number): void {
@@ -374,36 +384,19 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     const stride = 16;
     if (this.dirty) {
       const need = this.count * stride;
-      if (this.instanceData.length < need) {
-        this.instanceData = new Float32Array(Math.max(need, stride));
-      }
+      this.#packInstances();
       const buf = this.instanceData;
-      for (let i = 0; i < this.count; i++) {
-        const inst = this.instances[i];
-        const packed = this.atlas?.getPacked(inst.icon) ?? this.fallbackIcon;
-        const merc = projectMercator01(inst.lat, inst.lng);
-        const prev = projectMercator01(inst.prevLat ?? inst.lat, inst.prevLng ?? inst.lng);
-        const o = i * stride;
-        buf[o] = merc.x;
-        buf[o + 1] = merc.y;
-        buf[o + 2] = prev.x;
-        buf[o + 3] = prev.y;
-        buf[o + 4] = packed.u0;
-        buf[o + 5] = packed.v0;
-        buf[o + 6] = packed.u1;
-        buf[o + 7] = packed.v1;
-        buf[o + 8] = Math.max(1, inst.size);
-        buf[o + 9] = ((Number(inst.rotation) || 0) % 360) * Math.PI / 180;
-        buf[o + 10] = inst.tint[0];
-        buf[o + 11] = inst.tint[1];
-        buf[o + 12] = inst.tint[2];
-        buf[o + 13] = inst.tint[3] * (Number.isFinite(inst.opacity) ? inst.opacity : 1);
-        buf[o + 14] = Number(inst.startTimeMs) || 0;
-        buf[o + 15] = Math.max(0, Number(inst.durationMs) || 0);
-      }
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, buf.subarray(0, need), gl.DYNAMIC_DRAW);
       this.dirty = false;
+      this.patched.clear();
+    } else if (this.patched.size) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+      for (const index of this.patched) {
+        const offset = index * stride;
+        gl.bufferSubData(gl.ARRAY_BUFFER, offset * 4, this.instanceData.subarray(offset, offset + stride));
+      }
+      this.patched.clear();
     }
 
     gl.useProgram(this.program);

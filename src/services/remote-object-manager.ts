@@ -29,6 +29,10 @@ export interface RemoteObjectManagerOptions extends ObjectManagerOptions {
   /** Delay for automatic viewport loads only, in milliseconds. Default 120. */
   debounceMs?: number;
   replace?: boolean;
+  /** Opt-in stable-id reconciliation instead of clear/add. Preserves retained object state. */
+  reconcile?: boolean;
+  /** Optional equality/version comparator used by reconcile. */
+  equals?: (previous: ManagedObject, next: ManagedObject) => boolean;
 }
 
 export interface RemoteObjectReloadOptions {
@@ -50,6 +54,8 @@ export class RemoteObjectManager extends ObjectManager<RemoteObjectManagerEventM
   readonly loader: RemoteObjectLoader;
   readonly debounceMs: number;
   readonly replace: boolean;
+  readonly reconcileOnLoad: boolean;
+  readonly equals?: (previous: ManagedObject, next: ManagedObject) => boolean;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #operation: AbortableOperation | null = null;
   #generation = 0;
@@ -59,10 +65,14 @@ export class RemoteObjectManager extends ObjectManager<RemoteObjectManagerEventM
     if (options?.points !== undefined || options?.source !== undefined) throw new TypeError("RemoteObjectManager loader cannot be combined with points or source");
     if (typeof options?.loader !== "function") throw new TypeError("RemoteObjectManager loader is required");
     const debounceMs = nonNegativeFinite(options.debounceMs ?? 120, "debounceMs");
+    if (options.reconcile && options.replace === false) throw new TypeError("reconcile requires replace mode");
+    if (options.equals !== undefined && typeof options.equals !== "function") throw new TypeError("equals must be a function");
     super(options);
     this.loader = options.loader;
     this.debounceMs = debounceMs;
     this.replace = options.replace !== false;
+    this.reconcileOnLoad = options.reconcile === true;
+    this.equals = options.equals;
   }
 
   get loading(): boolean {
@@ -151,8 +161,11 @@ export class RemoteObjectManager extends ObjectManager<RemoteObjectManagerEventM
         if (!object || typeof object !== "object") throw new TypeError("RemoteObjectManager loader returned an invalid object.");
         assertManagedCoordinateFormat(object);
       }
-      if (this.replace) super.clear();
-      super.add(objects);
+      if (this.reconcileOnLoad) super.reconcile(objects, this.equals);
+      else {
+        if (this.replace) super.clear();
+        super.add(objects);
+      }
       if (this.#operation === operation) this.#operation = null;
       this.emit("load", { context, objects, stats: this.getStats() });
       return objects;
