@@ -19,6 +19,8 @@ export interface AIHTTPCreateSessionInput {
 }
 
 export interface AIHTTPHandlerOptions {
+  /** Per-SSE-client byte budget. Overflow ends with resync_required; fetch a snapshot before reconnecting. Default 1 MiB. */
+  maxEventQueueBytes?: number;
   /** Endpoint prefix. Default: /api/orihon */
   basePath?: string;
   /** Reuse a host-configured semantic runtime/capability registry. */
@@ -100,6 +102,8 @@ function readSessionIdFromUrl(url: URL): string | undefined {
  * limits, persistence and choosing the map/tenant-specific engine instance.
  */
 export function createAIHTTPHandler(engine: AICommandEngine, options: AIHTTPHandlerOptions = {}): AIHTTPHandler {
+  const maxEventQueueBytes = options.maxEventQueueBytes ?? 1024 * 1024;
+  if (!Number.isSafeInteger(maxEventQueueBytes) || maxEventQueueBytes < 1024) throw new RangeError("maxEventQueueBytes must be an integer >= 1024");
   if (!engine || typeof engine.execute !== "function") throw new TypeError("createAIHTTPHandler(engine) requires an AICommandEngine");
   const basePath = (options.basePath ?? "/api/orihon").replace(/\/$/, "");
   const runtime = options.runtime ?? createAIAgentRuntime(engine);
@@ -159,27 +163,39 @@ export function createAIHTTPHandler(engine: AICommandEngine, options: AIHTTPHand
     // permanently out of step with GET /sessions/:id/snapshot.
     const source = session?.engine ?? engine;
     let unsubscribe: (() => void) | undefined;
+    let close: (() => void) | undefined;
+    const abort = (): void => close?.();
+    const cleanup = (): void => {
+      unsubscribe?.(); unsubscribe = undefined;
+      request.signal.removeEventListener("abort", abort);
+    };
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        let closed = false;
+        close = () => { if (closed) return; closed = true; cleanup(); controller.close(); };
+        if (request.signal.aborted) { close(); return; }
         const ready = {
           revision: source.revision,
           ...(session ? { sessionId: session.id, actor: session.actor } : {})
         };
         controller.enqueue(encoder.encode(`event: ready\ndata: ${JSON.stringify(ready)}\n\n`));
         unsubscribe = source.subscribe((event) => {
-          controller.enqueue(encoder.encode(`id: ${event.revision}\nevent: command\ndata: ${JSON.stringify(event)}\n\n`));
+          if (closed) return;
+          const data = encoder.encode(`id: ${event.revision}\nevent: command\ndata: ${JSON.stringify(event)}\n\n`);
+          if (data.byteLength > (controller.desiredSize ?? 0)) {
+            controller.enqueue(encoder.encode(`event: resync_required\ndata: {"revision":${source.revision},"reason":"slow_consumer"}\n\n`));
+            close?.();
+            return;
+          }
+          controller.enqueue(data);
         });
-        request.signal.addEventListener("abort", () => {
-          unsubscribe?.();
-          unsubscribe = undefined;
-          try { controller.close(); } catch { /* stream may already be closed */ }
-        }, { once: true });
+        request.signal.addEventListener("abort", abort, { once: true });
       },
       cancel() {
-        unsubscribe?.();
-        unsubscribe = undefined;
+        close = undefined;
+        cleanup();
       }
-    });
+    }, { highWaterMark: maxEventQueueBytes, size: chunk => chunk.byteLength });
     return new Response(stream, {
       headers: {
         "content-type": "text/event-stream; charset=utf-8",

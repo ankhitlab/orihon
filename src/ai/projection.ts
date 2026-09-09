@@ -145,6 +145,7 @@ export class AIMapProjection {
   readonly #routes = new Map<string, RouteProjection>();
   #revision = 0;
   #destroyed = false;
+  #transactionManagers: Set<ObjectManager> | null = null;
 
   constructor(map: Orihon, options: AIMapProjectionOptions = {}) {
     this.map = map;
@@ -204,7 +205,7 @@ export class AIMapProjection {
         if (!(name in snapshot.collections)) projection.source.clear();
       }
       for (const [name, objects] of Object.entries(snapshot.collections)) {
-        this.#collection(name, objects.length > 100, hasAIVisual(objects)).source.replace(objects);
+        this.#collection(name, objects.length > 100, hasAIVisual(objects)).source.reconcile(objects);
       }
       const snapshotRoutes = snapshot.routes ?? {};
       for (const [id, projection] of this.#routes) {
@@ -248,16 +249,51 @@ export class AIMapProjection {
         this.#annotateRoute(event.route, event.command.annotateStops !== false);
         this.#applyRoute(event.route);
       } else if (event.type === "transaction") {
-        if (event.events.length === 1) {
-          const result = this.applyEvent({ ...event.events[0], revision: event.revision });
-          if (!result.ok) return result;
-          return { ok: true, value: { revision: this.#revision, type: "transaction" } };
+        if (this.#transactionManagers || !Array.isArray(event.events) || event.events.some(delta => delta.type === ("transaction" as string))) {
+          throw new AIError("INVALID_TYPE", "$event.events", "Expected a flat list of transaction deltas");
         }
-        if (!event.snapshot) {
-          throw new AIError("REQUIRED_PROPERTY", "$event.snapshot", "A multi-command transaction requires a snapshot", event);
+        const baseRevision = this.#revision;
+        const existingNames = new Set(this.#collections.keys());
+        const snapshots = new Map([...this.#collections].map(([name, value]) => [name, value.source.getSnapshot().features]));
+        const savedScene = this.session.query();
+        const savedRoutes = new Map([...this.#routes].map(([id, projection]) => [id, { projection, routes: projection.layer.getRoutes(), selectedIndex: projection.layer.selectedIndex, collection: projection.collection }]));
+        const managers = new Set<ObjectManager>();
+        this.#transactionManagers = managers;
+        const sources = [...this.#collections.values()].map(({ source, manager }) => {
+          manager.beginBulk(); managers.add(manager); return source;
+        });
+        // All subscribed sources publish only final deltas, while managers (including
+        // ones created below) defer drawing until the outer transaction finishes.
+        const apply = (index: number): void => {
+          if (index < sources.length) { sources[index].batch(() => apply(index + 1)); return; }
+          try {
+            for (const delta of event.events) {
+              this.#revision = baseRevision;
+              const result = this.applyEvent({ ...delta, revision: event.revision });
+              if (!result.ok) throw new AIError(result.error.code, result.error.path, result.error.message);
+            }
+          } catch (error) {
+            for (const [name, projection] of this.#collections) {
+              if (existingNames.has(name)) projection.source.replace(snapshots.get(name)!);
+              else { projection.manager.destroy(); this.#collections.delete(name); }
+            }
+            this.session.applyScene(savedScene);
+            for (const route of this.#routes.values()) if (![...savedRoutes.values()].some(saved => saved.projection === route)) route.layer.remove();
+            this.#routes.clear();
+            for (const [id, saved] of savedRoutes) {
+              saved.projection.collection = saved.collection;
+              saved.projection.layer.setRoutes(saved.routes, saved.selectedIndex).addTo(this.map);
+              this.#routes.set(id, saved.projection);
+            }
+            this.#revision = baseRevision;
+            throw error;
+          }
+        };
+        try { apply(0); }
+        finally {
+          this.#transactionManagers = null;
+          for (const manager of managers) manager.endBulk();
         }
-        const result = this.applySnapshot(event.snapshot);
-        if (!result.ok) return result;
       } else {
         const command = event.command;
         this.#removeRoutesForCollection(event.collection);
@@ -344,6 +380,10 @@ export class AIMapProjection {
       ...(enableAIStyle ? { style: composeAIStyle(consumerStyle) } : {}),
       source
     }).addTo(this.map);
+    if (this.#transactionManagers) {
+      manager.beginBulk();
+      this.#transactionManagers.add(manager);
+    }
     if (this.#options.objectPopups !== false) {
       manager.bindPopup((object, objectId) => {
         const properties = object.properties ?? {};

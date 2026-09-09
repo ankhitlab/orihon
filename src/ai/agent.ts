@@ -72,6 +72,8 @@ export interface AILLMAgentOptions {
   tools: AILLMExecutableTool[];
   systemPrompt: string;
   maxTurns?: number;
+  /** Total tool executions allowed per run, including one large model response. Default 64. */
+  maxToolCalls?: number;
 }
 
 export interface AILLMAgent {
@@ -110,6 +112,10 @@ export function createAILLMAgent(options: AILLMAgentOptions): AILLMAgent {
     throw new TypeError("createAILLMAgent requires at least one tool");
   }
   const maxTurns = options.maxTurns ?? 6;
+  const maxToolCalls = options.maxToolCalls ?? 64;
+  if (!Number.isSafeInteger(maxToolCalls) || maxToolCalls < 1 || maxToolCalls > 1024) {
+    throw new RangeError("maxToolCalls must be an integer from 1 to 1024");
+  }
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 1 || maxTurns > 12) {
     throw new RangeError("maxTurns must be an integer from 1 to 12");
   }
@@ -144,6 +150,7 @@ export function createAILLMAgent(options: AILLMAgentOptions): AILLMAgent {
             messages: clone(messages),
             tools: clone(definitions)
           }, runOptions);
+          runOptions.signal?.throwIfAborted();
           addUsage(totalUsage, completion.usage);
           messages.push({
             role: "assistant",
@@ -166,10 +173,13 @@ export function createAILLMAgent(options: AILLMAgentOptions): AILLMAgent {
           }
 
           for (const call of completion.toolCalls) {
+            runOptions.signal?.throwIfAborted();
+            if (traces.length >= maxToolCalls) throw new AIError("EXECUTION_ERROR", "$agent.toolCalls", "Tool execution limit exceeded", maxToolCalls);
             const tool = tools.get(call.name);
             const result = tool
               ? await Promise.resolve(tool.execute(clone(call.arguments), runOptions)).catch(toolFailure)
               : toolFailure(new AIError("NOT_FOUND", "$tool.name", `Tool "${call.name}" is not registered`, call.name));
+            runOptions.signal?.throwIfAborted();
             const safeResult = clone(result);
             traces.push({ turn, id: call.id, name: call.name, arguments: clone(call.arguments), result: safeResult });
             messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: toolContent(safeResult) });

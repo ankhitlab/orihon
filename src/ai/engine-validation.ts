@@ -71,7 +71,7 @@ function json(value: unknown, path: string, seen = new Set<object>()): unknown {
     const result: JSONObject = {};
     for (const [key, entry] of Object.entries(source)) {
       if (entry === undefined) fail("NOT_JSON", `${path}.${key}`, "undefined is not valid JSON", entry);
-      result[key] = json(entry, `${path}.${key}`, seen);
+      Object.defineProperty(result, key, { value: json(entry, `${path}.${key}`, seen), enumerable: true, configurable: true, writable: true });
     }
     seen.delete(source);
     return result;

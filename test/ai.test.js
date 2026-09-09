@@ -12,6 +12,7 @@ Object.assign(globalThis, {
   window: dom.window,
   document: dom.window.document,
   HTMLElement: dom.window.HTMLElement,
+  HTMLDivElement: dom.window.HTMLDivElement,
   HTMLImageElement: dom.window.HTMLImageElement,
   Node: dom.window.Node,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
@@ -330,7 +331,7 @@ test("browser projection feeds engine snapshots and events through FeatureSource
   engine.execute({ op: "objects.add", collection: "vehicles", objects: [point("bus", 13.4, 52.5)] });
   const map = createMap(container(), { center: { lat: 52.5, lng: 13.4 }, zoom: 10, controls: false });
   const projection = createAIMapProjection(map, { objectManager: { clusterize: false } });
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
   assert.equal(projection.revision, 1);
   assert.equal(projection.getCollectionSource("vehicles").size, 1);
 
@@ -407,7 +408,7 @@ test("point projection uses ObjectManager popups and applies viewport fit", () =
   });
   const map = createMap(container(), { center: { lat: 0, lng: 0 }, zoom: 2, controls: false });
   const projection = createAIMapProjection(map);
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
 
   const executed = engine.execute({
     op: "points.replace",
@@ -567,7 +568,7 @@ test("point snapshot recovery restores viewport and clickable ObjectManager popu
     flyCalls.push(args);
     return originalFly(...args);
   };
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
   assert.equal(flyCalls.length, 0, "snapshot restore must not fly from a stale camera");
   assert.equal(map.getBounds().contains({ lat: 52.5163, lng: 13.3777 }), true);
   assert.equal(map.getBounds().contains({ lat: 52.505, lng: 13.4397 }), true);
@@ -1331,7 +1332,7 @@ test("agent session bridge drives live map viewport selection and popup", async 
     ]
   });
   assert.equal(planned.ok, true);
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
 
   const moved = await session.call("map.set_viewport", {
     center: { lat: 50.08, lng: 14.42 },
@@ -1382,7 +1383,7 @@ test("agent session observes browser selection and object moves into engine", ()
     ],
     presentation: { clearMap: true }
   }).ok, true);
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
 
   const events = [];
   session.subscribeUser((event) => events.push(event));
@@ -1440,7 +1441,7 @@ test("visualization stress intents generate and update bulk data inside the engi
   const before = engine.getSnapshot().collections["load-vehicles"][0].geometry.coordinates;
   const map = createMap(container(), { center: { lat: 55.7558, lng: 37.6176 }, zoom: 10, controls: false });
   const projection = createAIMapProjection(map);
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
   let updateEvent;
   const unsubscribe = engine.subscribe((event) => { updateEvent = event; });
 
@@ -2203,7 +2204,7 @@ test("observeBrowser unwires dragend handlers so re-observing cannot double-repo
     collection: "stops",
     points: [{ id: "s1", position: { lat: 55.75, lng: 37.62 }, title: "One" }]
   }).ok, true);
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
 
   // Headless renderers keep no DOM markers, so stand one in to exercise the
   // per-marker drag path observeBrowser uses without ObjectManager.draggablePoints.
@@ -2322,7 +2323,7 @@ test("projection drops route layers of every collection a clearMap wipes", () =>
       route: { reactive: true }
     }).ok, true);
   }
-  assert.equal(projection.applySnapshot(engine.getSnapshot()).ok, true);
+  assert.deepEqual(projection.applySnapshot(engine.getSnapshot()), { ok: true, value: { revision: engine.revision, type: "snapshot" } });
   assert.deepEqual([...projection.getRouteNames()].sort(), ["ra", "rb"]);
 
   const events = [];

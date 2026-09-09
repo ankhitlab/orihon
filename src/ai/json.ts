@@ -49,6 +49,6 @@ export function keys(value: JSONObject, allowed: readonly string[], path: string
 }
 
 export function requiredProperty(value: JSONObject, key: string, path: string): unknown {
-  if (!(key in value)) fail("REQUIRED_PROPERTY", `${path}.${key}`, `Required property "${key}" is missing`);
+  if (!Object.hasOwn(value, key)) fail("REQUIRED_PROPERTY", `${path}.${key}`, `Required property "${key}" is missing`);
   return value[key];
 }

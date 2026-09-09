@@ -346,9 +346,9 @@ export interface AIEngineTransactionEvent {
   transactionId: string;
   operation: string;
   commands: AIEngineCommand[];
-  /** Ordered engine deltas. A single-command transaction can be projected without a full resync. */
+  /** Ordered engine deltas, applied together at the transaction revision. */
   events: AIEngineMutationEvent[];
-  /** Multi-command plans retain a complete atomic projection snapshot. */
+  /** Optional legacy/resync snapshot; normal transactions carry deltas only. */
   snapshot?: AIEngineSnapshot;
 }
 

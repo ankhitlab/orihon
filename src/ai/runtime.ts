@@ -272,8 +272,10 @@ export class AIAgentRuntime {
     return this.registry.list();
   }
 
-  getContext(snapshot = this.engine.getSnapshot()): AIAgentContext {
+  getContext(snapshot?: AIEngineSnapshot): AIAgentContext {
     const capabilities = this.registry.list();
+    if (!snapshot) return { ...this.engine.getContextSummary(CONTEXT_ID_LIMIT),
+      capabilities: capabilities.map(({ id, operations }) => ({ id, operations: operations.map(({ name }) => name) })) };
     return {
       version: 1,
       revision: snapshot.revision,
@@ -355,8 +357,7 @@ export class AIAgentRuntime {
         };
       }
       if (intent.goal === "update_points") {
-        const snapshot = this.engine.getSnapshot();
-        const current = snapshot.collections[intent.collection];
+        const current = this.engine.getObjects(intent.collection, intent.presentation?.viewport ? undefined : intent.points.map(point => point.id));
         if (!current) {
           throw new AIError("NOT_FOUND", "$intent.collection", `Collection "${intent.collection}" does not exist`, intent.collection);
         }
@@ -526,7 +527,7 @@ export class AIAgentRuntime {
           plan: compactAIPlan(plan),
           revision: result.value.revision,
           resources: resources(plan, result.value.revision),
-          context: this.getContext(result.value.snapshot)
+          context: this.getContext()
         }
       };
     } catch (error) {

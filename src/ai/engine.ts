@@ -22,6 +22,7 @@ import type {
   AICameraSpec,
   AISceneSpec
 } from "./types.js";
+import type { AIAgentContext } from "./types.js";
 import {
   validateEngineCommand,
   validateEngineViewport,
@@ -39,18 +40,49 @@ export interface AICommandEngineInitialState {
 
 export type AIEngineListener = (event: AIEngineEvent) => void;
 
+export interface AIObjectQueryOptions {
+  collection: string;
+  /** GeoJSON order: west, south, east, north; west > east crosses the dateline. */
+  bbox?: readonly [number, number, number, number];
+  where?: Record<string, string | number | boolean | null>;
+  search?: string;
+  fields?: readonly string[];
+  includeGeometry?: boolean;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AIObjectQueryResult {
+  revision: number;
+  objects: Array<{ id: string | number; properties?: Record<string, unknown> | null; geometry?: AIObjectFeature["geometry"] }>;
+  count: number;
+  geometryCounts: Record<string, number>;
+  nextCursor?: string;
+}
+
 function deepMerge(target: unknown, patch: unknown): unknown {
   if (!target || typeof target !== "object" || Array.isArray(target)
     || !patch || typeof patch !== "object" || Array.isArray(patch)) return clone(patch);
   const result = { ...(target as Record<string, unknown>) };
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
-    result[key] = key in result ? deepMerge(result[key], value) : clone(value);
+    Object.defineProperty(result, key, { value: Object.hasOwn(result, key) ? deepMerge(result[key], value) : clone(value), enumerable: true, writable: true, configurable: true });
   }
   return result;
 }
 
 function featureMap(features: readonly AIObjectFeature[]): Map<string | number, AIObjectFeature> {
   return new Map(features.map((feature) => [feature.id, clone(feature)]));
+}
+
+const geometryCounts = new WeakMap<Map<string | number, AIObjectFeature>, Map<string, number>>();
+function countsFor(objects: Map<string | number, AIObjectFeature>): Map<string, number> {
+  let counts = geometryCounts.get(objects);
+  if (!counts) {
+    counts = new Map();
+    for (const object of objects.values()) counts.set(object.geometry.type, (counts.get(object.geometry.type) ?? 0) + 1);
+    geometryCounts.set(objects, counts);
+  }
+  return counts;
 }
 
 /** Approximate camera for headless viewport recovery without a live map size. */
@@ -112,6 +144,59 @@ export class AICommandEngine {
 
   get revision(): number { return this.#revision; }
 
+  /** Isolated feature reads; supplying ids avoids copying the rest of the collection. */
+  getObjects(collection: string, ids?: readonly (string | number)[]): AIObjectFeature[] | undefined {
+    const objects = this.#collections.get(collection);
+    if (!objects) return undefined;
+    return clone(ids ? ids.flatMap(id => { const value = objects.get(id); return value ? [value] : []; }) : [...objects.values()]);
+  }
+
+  /** Headless, bounded object query. Cursor is bound to the revision and query parameters. */
+  queryObjects(options: AIObjectQueryOptions): AIObjectQueryResult {
+    const objects = this.#collections.get(options.collection);
+    if (!objects) throw new AIError("NOT_FOUND", "$query.collection", "Collection does not exist", options.collection);
+    const limit = options.limit ?? 100;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new RangeError("limit must be between 1 and 1000");
+    const bbox = options.bbox;
+    if (bbox && (bbox.length !== 4 || !bbox.every(Number.isFinite) || bbox[1] < -90 || bbox[3] > 90 || bbox[1] > bbox[3] || Math.abs(bbox[0]) > 180 || Math.abs(bbox[2]) > 180)) throw new RangeError("Invalid query bbox");
+    if (options.fields && (!Array.isArray(options.fields) || options.fields.length > 64 || options.fields.some(field => typeof field !== "string"))) throw new TypeError("fields must contain at most 64 property names");
+    if (options.search !== undefined && (typeof options.search !== "string" || options.search.length > 1000)) throw new TypeError("search must be a string of at most 1000 characters");
+    if (options.where && (typeof options.where !== "object" || Array.isArray(options.where) || Object.values(options.where).some(value => value !== null && !["string", "number", "boolean"].includes(typeof value)))) throw new TypeError("where requires scalar property values");
+    const signature = JSON.stringify([options.collection, bbox, options.where, options.search, options.fields, options.includeGeometry, limit]);
+    let offset = 0;
+    if (options.cursor) {
+      let cursor: unknown;
+      try { cursor = JSON.parse(options.cursor); } catch { throw new TypeError("Invalid query cursor"); }
+      const value = cursor as { revision?: number; offset?: number; signature?: string } | null;
+      if (!value || value.revision !== this.#revision) throw new AIError("REVISION_CONFLICT", "$query.cursor", "Query cursor has expired");
+      if (value.signature !== signature || !Number.isSafeInteger(value.offset) || value.offset! < 0) throw new TypeError("Cursor does not match query");
+      offset = value.offset!;
+    }
+    const results: AIObjectQueryResult["objects"] = [];
+    const counts: Record<string, number> = {};
+    const search = options.search?.toLocaleLowerCase();
+    let count = 0;
+    for (const feature of objects.values()) {
+      const props = feature.properties ?? {};
+      if (options.where && !Object.entries(options.where).every(([key, value]) => Object.hasOwn(props, key) && props[key] === value)) continue;
+      if (search && !Object.values(props).some(value => typeof value === "string" && value.toLocaleLowerCase().includes(search))) continue;
+      if (bbox) {
+        const positions = feature.geometry.type === "Point" ? [feature.geometry.coordinates]
+          : feature.geometry.type === "LineString" ? feature.geometry.coordinates : feature.geometry.type === "Polygon" ? feature.geometry.coordinates.flat() : [];
+        let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+        for (const [lng, lat] of positions) { west = Math.min(west, lng); east = Math.max(east, lng); south = Math.min(south, lat); north = Math.max(north, lat); }
+        if (north < bbox[1] || south > bbox[3] || (bbox[0] <= bbox[2] ? east < bbox[0] || west > bbox[2] : east < bbox[0] && west > bbox[2])) continue;
+      }
+      counts[feature.geometry.type] = (counts[feature.geometry.type] ?? 0) + 1;
+      if (count >= offset && results.length < limit) results.push({ id: feature.id,
+        properties: options.fields ? Object.fromEntries(options.fields.filter(key => Object.hasOwn(props, key)).map(key => [key, props[key]])) : feature.properties,
+        ...(options.includeGeometry ? { geometry: feature.geometry } : {}) });
+      count++;
+    }
+    return { revision: this.#revision, objects: clone(results), count, geometryCounts: counts,
+      ...(offset + results.length < count ? { nextCursor: JSON.stringify({ revision: this.#revision, offset: offset + results.length, signature }) } : {}) };
+  }
+
   subscribe(listener: AIEngineListener): () => void {
     this.#listeners.add(listener);
     return () => { this.#listeners.delete(listener); };
@@ -119,9 +204,9 @@ export class AICommandEngine {
 
   getSnapshot(): AIEngineSnapshot {
     const collections: Record<string, AIObjectFeature[]> = {};
-    for (const [name, objects] of this.#collections) collections[name] = [...objects.values()].map(clone);
+    for (const [name, objects] of this.#collections) Object.defineProperty(collections, name, { value: [...objects.values()], enumerable: true });
     const routes: Record<string, AIRoutePlanState> = {};
-    for (const [id, route] of this.#routes) routes[id] = clone(route);
+    for (const [id, route] of this.#routes) Object.defineProperty(routes, id, { value: route, enumerable: true });
     return clone({
       version: 1,
       revision: this.#revision,
@@ -130,6 +215,28 @@ export class AICommandEngine {
       ...(this.#routes.size > 0 ? { routes } : {}),
       ...(this.#viewport?.revision === this.#revision ? { viewport: this.#viewport } : {})
     });
+  }
+
+  /** Bounded metadata for agents; never serializes collection geometries. */
+  getContextSummary(idLimit = 24): Omit<AIAgentContext, "capabilities"> {
+    if (!Number.isSafeInteger(idLimit) || idLimit < 0 || idLimit > 1000) throw new RangeError("idLimit must be between 0 and 1000");
+    return {
+      version: 1,
+      revision: this.#revision,
+      scene: { layers: this.#scene.layers.length, hasBasemap: this.#scene.basemap != null, hasCamera: this.#scene.camera !== undefined },
+      collections: [...this.#collections].map(([id, objects]) => {
+        const ids: Array<string | number> = [];
+        for (const key of objects.keys()) { if (ids.length === idLimit) break; ids.push(key); }
+        return { ref: { kind: "collection" as const, id, revision: this.#revision }, count: objects.size,
+          geometryTypes: [...countsFor(objects)].filter(([, count]) => count > 0).map(([type]) => type as AIObjectFeature["geometry"]["type"]), ids };
+      }),
+      routes: [...this.#routes.values()].map(route => {
+        const selected = route.routes[route.selectedIndex];
+        return { id: route.id, ref: { kind: "route" as const, id: route.id, revision: this.#revision }, collection: route.collection,
+          stops: route.waypointIds.length, ...(selected?.distance !== undefined ? { distance: selected.distance } : {}),
+          ...(selected?.durationMs !== undefined ? { durationMs: selected.durationMs } : {}), reactive: route.request?.reactive === true };
+      })
+    };
   }
 
   /**
@@ -219,7 +326,7 @@ export class AICommandEngine {
       const revision = baseRevision + 1;
       this.#scene = clone(staged.#scene);
       this.#collections.clear();
-      for (const [name, objects] of staged.#collections) this.#collections.set(name, featureMap([...objects.values()]));
+      for (const [name, objects] of staged.#collections) this.#collections.set(name, objects);
       this.#routes.clear();
       for (const [id, route] of staged.#routes) this.#routes.set(id, clone(route));
       // A viewport hint expires with the revision that produced it. The fork numbers
@@ -232,20 +339,22 @@ export class AICommandEngine {
           : clone(staged.#viewport))
         : undefined;
       this.#revision = revision;
-      const snapshot = this.getSnapshot();
+      // Capture an immutable fork so the lazy compatibility snapshot retains this revision.
+      const snapshotState = this.#fork();
+      let snapshot: AIEngineSnapshot | undefined;
       const event = {
         type: "transaction" as const,
         revision,
         transactionId: options.transactionId ?? `transaction-${revision}`,
         operation: options.operation ?? "plan.commit",
         commands: normalized,
-        events,
-        ...(events.length === 1 ? {} : { snapshot })
+        events
       };
       for (const listener of this.#listeners) {
         try { listener(clone(event)); } catch { /* listeners cannot roll back an accepted transaction */ }
       }
-      return { ok: true, value: { op: "transaction", revision, event: clone(event), snapshot } };
+      return { ok: true, value: { op: "transaction", revision, event: clone(event),
+        get snapshot() { return snapshot ??= snapshotState.getSnapshot(); } } };
     } catch (error) {
       return { ok: false, error: toAIError(error).toJSON() };
     }
@@ -357,25 +466,34 @@ export class AICommandEngine {
     const affectedRoutes = replaceMap
       ? []
       : [...this.#routes.values()].filter((route) => route.collection === command.collection).map(clone);
-    const current = replaceMap ? undefined : this.#collections.get(command.collection);
-    const next = new Map<string | number, AIObjectFeature>();
-    for (const [id, feature] of current ?? []) next.set(id, clone(feature));
+    const current = replaceMap || command.op === "points.replace" || command.op === "objects.replace" || command.op === "objects.clear"
+      ? undefined : this.#collections.get(command.collection);
+    // Internal features are never mutated; staging copies only the map and changed features.
+    const next = new Map(current);
+    const counts = new Map(current ? countsFor(current) : []);
+    const countFeature = (object: AIObjectFeature, delta: number): void => {
+      counts.set(object.geometry.type, (counts.get(object.geometry.type) ?? 0) + delta);
+    };
 
     const add = (objects: readonly AIObjectFeature[], path: string): void => {
       for (const object of objects) {
         if (next.has(object.id)) throw new AIError("DUPLICATE_ID", path, `Object "${String(object.id)}" already exists`, object.id);
         next.set(object.id, clone(object));
+        countFeature(object, 1);
       }
     };
     const update = (objects: readonly AIObjectFeature[], path: string): void => {
       for (const object of objects) {
         if (!next.has(object.id)) throw new AIError("NOT_FOUND", path, `Object "${String(object.id)}" does not exist`, object.id);
+        countFeature(next.get(object.id)!, -1);
         next.set(object.id, clone(object));
+        countFeature(object, 1);
       }
     };
     const remove = (ids: readonly (string | number)[], path: string): void => {
       for (const id of ids) {
         if (!next.has(id)) throw new AIError("NOT_FOUND", path, `Object "${String(id)}" does not exist`, id);
+        countFeature(next.get(id)!, -1);
         next.delete(id);
       }
     };
@@ -436,6 +554,7 @@ export class AICommandEngine {
       }
     }
     this.#collections.set(command.collection, next);
+    if (!replannedRoutes.length) geometryCounts.set(next, counts);
     this.#revision++;
     if (command.op === "points.replace" && command.viewport) {
       this.#viewport = {
@@ -497,7 +616,7 @@ export class AICommandEngine {
     staged.#revision = this.#revision;
     staged.#scene = clone(this.#scene);
     staged.#viewport = this.#viewport ? clone(this.#viewport) : undefined;
-    for (const [name, objects] of this.#collections) staged.#collections.set(name, featureMap([...objects.values()]));
+    for (const [name, objects] of this.#collections) staged.#collections.set(name, objects);
     for (const [id, route] of this.#routes) staged.#routes.set(id, clone(route));
     return staged;
   }

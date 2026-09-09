@@ -131,7 +131,7 @@ export type {
   AIVisualizationStressIntent,
   AIVisualizationStressUpdateIntent
 } from "./ai/types.js";
-export type { AICommandEngineInitialState, AIEngineListener } from "./ai/engine.js";
+export type { AICommandEngineInitialState, AIEngineListener, AIObjectQueryOptions, AIObjectQueryResult } from "./ai/engine.js";
 export type { AICapabilityAdapter } from "./ai/capabilities.js";
 export type { AIPlanPreviewResult } from "./ai/runtime.js";
 export type {
