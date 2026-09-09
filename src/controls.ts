@@ -20,6 +20,18 @@ const fullscreenLabels: Record<LocaleName, readonly [enter: string, exit: string
   hi: ["पूर्ण स्क्रीन", "पूर्ण स्क्रीन से बाहर निकलें"]
 };
 
+const measureLabels: Record<LocaleName, string> = {
+  en: "Measure distance",
+  ru: "Измерить расстояние",
+  ar: "قياس المسافة",
+  tr: "Mesafe ölç",
+  zh: "测量距离",
+  de: "Entfernung messen",
+  fr: "Mesurer la distance",
+  da: "Mål afstand",
+  hi: "दूरी मापें"
+};
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function createMeasureIcon(): SVGSVGElement {
@@ -151,8 +163,6 @@ export class MeasureControl extends Control<MeasureControlOptions> {
     this.button = createEl("button", "oh-control-button", this.el);
     this.button.type = "button";
     this.button.append(createMeasureIcon());
-    this.button.title = this.options.title ?? "Measure distance";
-    this.button.setAttribute("aria-label", this.button.title);
     this._unsub.push(listen(this.button, "click", () => this.active ? this.finish() : this.start()));
     this._unsub.push(listen(map.container, "pointermove", (event) => {
       if (!this.active || !this.points.length) return;
@@ -166,6 +176,15 @@ export class MeasureControl extends Control<MeasureControlOptions> {
       event.stopPropagation();
       this.finish();
     }, true));
+    this.render();
+  }
+
+  /** Resolved here rather than in `onAdd` so `map.setLocale()` relabels the button. */
+  override render(): void {
+    if (!this.button) return;
+    const title = this.options.title ?? measureLabels[this.locale.language] ?? measureLabels.en;
+    this.button.title = title;
+    this.button.setAttribute("aria-label", title);
   }
 
   override onRemove(): void {
