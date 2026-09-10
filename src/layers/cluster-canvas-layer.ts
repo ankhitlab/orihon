@@ -5,6 +5,7 @@ import { latLng, type LatLng, type LatLngLike, type Point } from "../geo.js";
 import type { Orihon } from "../map.js";
 import type { PointLike } from "../geo.js";
 import type { QueryHit, ResolvedQueryOptions } from "../layer.js";
+import { CameraTransform, fillMercator01From } from "./mercator-cache.js";
 
 export type ClusterCanvasItem = {
   key: string;
@@ -44,6 +45,13 @@ export class ClusterCanvasLayer extends InteractiveLayer<ClusterCanvasLayerOptio
   private items: ClusterCanvasItem[] = [];
   private drawn: DrawnCluster[] = [];
   private dpr = 1;
+  /**
+   * Normalised mercator for `items`, rebuilt whenever the set changes. Clusters are
+   * redrawn on every camera frame but only recomputed when the layout does, so this
+   * turns each pan frame into an affine transform per cluster.
+   */
+  private _mx: Float64Array = new Float64Array(0);
+  private _my: Float64Array = new Float64Array(0);
 
   constructor(options: ClusterCanvasLayerOptions = {}) {
     super({ pane: "marker", hitTolerance: 8, ...options });
@@ -75,12 +83,17 @@ export class ClusterCanvasLayer extends InteractiveLayer<ClusterCanvasLayerOptio
 
   setClusters(items: ClusterCanvasItem[]): this {
     this.items = items;
+    this._mx = new Float64Array(items.length);
+    this._my = new Float64Array(items.length);
+    fillMercator01From(items, this._mx, this._my, items.length);
     this._draw();
     return this;
   }
 
   clear(): this {
     this.items = [];
+    this._mx = new Float64Array(0);
+    this._my = new Float64Array(0);
     this.drawn = [];
     const ctx = this.ctx;
     const canvas = this.canvas;
@@ -93,14 +106,16 @@ export class ClusterCanvasLayer extends InteractiveLayer<ClusterCanvasLayerOptio
     const y = Array.isArray(containerPoint) ? containerPoint[1] : containerPoint.y;
     let best: DrawnCluster | null = null;
     let bestDist = Infinity;
+    // Both tests here are comparisons, so they work just as well on squared distances
+    // and the square root never has to be taken.
     for (const d of this.drawn) {
       const dx = d.x - x;
       const dy = d.y - y;
-      const dist = Math.hypot(dx, dy);
+      const squared = dx * dx + dy * dy;
       const hit = Math.max(d.radius, tolerance);
-      if (dist <= hit && dist < bestDist) {
+      if (squared <= hit * hit && squared < bestDist) {
         best = d;
-        bestDist = dist;
+        bestDist = squared;
       }
     }
     return best ? { key: best.key, lat: best.lat, lng: best.lng, count: best.count } : null;
@@ -166,8 +181,14 @@ export class ClusterCanvasLayer extends InteractiveLayer<ClusterCanvasLayerOptio
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "bold 12px system-ui,Segoe UI,sans-serif";
-    for (const item of this.items) {
-      const p = map.latLngToContainerPoint({ lat: item.lat, lng: item.lng } as LatLngLike);
+    // Null under a non-Mercator CRS, or if the cache ever falls out of step with the
+    // item list; either way the original per-item projection still runs.
+    const camera = this._mx.length === this.items.length ? CameraTransform.of(map) : null;
+    for (let index = 0; index < this.items.length; index++) {
+      const item = this.items[index];
+      const p = camera
+        ? { x: camera.x(this._mx[index]), y: camera.y(this._my[index]) }
+        : map.latLngToContainerPoint({ lat: item.lat, lng: item.lng } as LatLngLike);
       const style = tierStyle(item.count);
       if (
         p.x < -style.radius ||

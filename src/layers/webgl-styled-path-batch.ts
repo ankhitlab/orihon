@@ -5,7 +5,7 @@ import { type LayerOptions, type QueryHit, type ResolvedQueryOptions } from "../
 import type { Orihon } from "../map.js";
 import { assertMercator } from "../crs.js";
 import { clampOpacity, parseCssColor } from "../webgl-utils.js";
-import { normalizeDashArray } from "./vector.js";
+import { normalizeDashArray, pixelDistance } from "./vector.js";
 import type { ObjectGradientStop } from "../services/object-types.js";
 import { approxHaversineMeters } from "../services/object-geometry.js";
 import { rejectStyleAliases, type RemovedLineStyleAliases } from "../style-contract.js";
@@ -83,7 +83,28 @@ export class WebGLStyledPathBatch extends InteractiveLayer<Required<WebGLStyledP
   }
 
   addPath(path: StyledPathInput): this {
-    if (!path.positions || path.positions.length < 2) return this;
+    const prepared = this.preparePath(path);
+    if (prepared) { this.paths.push(prepared); this._dataVersion++; }
+    return this;
+  }
+
+  /** Replace selected records without re-normalizing unchanged geometry. */
+  patchPaths(updates: Iterable<{ index: number; value: StyledPathInput }>): this {
+    const prepared = [...updates].map(({ index, value }) => {
+      if (!Number.isInteger(index) || index < 0 || index >= this.paths.length) throw new RangeError("Invalid batch index");
+      const record = this.preparePath(value);
+      if (!record) throw new TypeError("Invalid batch geometry");
+      return { index, record };
+    });
+    if (!prepared.length) return this;
+    for (const { index, record } of prepared) this.paths[index] = record;
+    this._dataVersion++;
+    this.render();
+    return this;
+  }
+
+  private preparePath(path: StyledPathInput): WebGLStyledPathBatch["paths"][number] | null {
+    if (!path.positions || path.positions.length < 2) return null;
     const n = path.positions.length;
     const lat = new Float64Array(n);
     const lng = new Float64Array(n);
@@ -108,16 +129,14 @@ export class WebGLStyledPathBatch extends InteractiveLayer<Required<WebGLStyledP
         distances[i] = length;
       }
     }
-    this.paths.push({
+    return {
       lat,
       lng,
       distances,
       style: normalizeStyle(path.style),
       id: path.id ?? null,
       bbox: [minLat, minLng, maxLat, maxLng]
-    });
-    this._dataVersion++;
-    return this;
+    };
   }
 
   override onAdd(map: Orihon): void {
@@ -339,7 +358,7 @@ function distanceToSegment(
 ): number {
   const dx = bx - ax;
   const dy = by - ay;
-  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
+  if (dx === 0 && dy === 0) return pixelDistance(px - ax, py - ay);
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  return pixelDistance(px - (ax + t * dx), py - (ay + t * dy));
 }

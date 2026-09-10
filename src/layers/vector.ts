@@ -264,13 +264,25 @@ interface PointLikeXY {
   y: number;
 }
 
+/**
+ * @internal Length of a screen-space vector.
+ *
+ * `Math.hypot` exists to avoid intermediate overflow at magnitudes near the float
+ * limit — around 1e154 — which pixel coordinates never approach. It is variadic and
+ * does a scaling pass to earn that guarantee, and measures roughly seven times slower
+ * than the direct form in the loops below, which run once per vertex per hit test.
+ */
+export function pixelDistance(dx: number, dy: number): number {
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 /** @internal Shared by every path hit test in the package; not part of the public surface. */
 export function segmentDistance(target: PointLikeXY, a: PointLikeXY, b: PointLikeXY): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  if (!dx && !dy) return Math.hypot(target.x - a.x, target.y - a.y);
+  if (!dx && !dy) return pixelDistance(target.x - a.x, target.y - a.y);
   const t = Math.max(0, Math.min(1, ((target.x - a.x) * dx + (target.y - a.y) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(target.x - (a.x + t * dx), target.y - (a.y + t * dy));
+  return pixelDistance(target.x - (a.x + t * dx), target.y - (a.y + t * dy));
 }
 
 /** @internal Even-odd ray cast in projected space, shared with the GeoJSON and batch hit tests. */
@@ -319,8 +331,8 @@ function projectedCirclePath(center: PointLikeXY, radius: number): string {
 function perpendicularDistance(point: PointLikeXY, start: PointLikeXY, end: PointLikeXY): number {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
-  return Math.abs(dy * point.x - dx * point.y + end.x * start.y - end.y * start.x) / Math.hypot(dx, dy);
+  if (dx === 0 && dy === 0) return pixelDistance(point.x - start.x, point.y - start.y);
+  return Math.abs(dy * point.x - dx * point.y + end.x * start.y - end.y * start.x) / pixelDistance(dx, dy);
 }
 
 export function simplifyProjectedPoints(points: PointLikeXY[], tolerance = 1): PointLikeXY[] {
@@ -635,7 +647,7 @@ export class Circle extends PathLayer {
       const radius = Math.max(0, this.map.crs.code === "Simple"
         ? Math.abs(this.#radiusValue) * this.map.crs.scale(this.map.zoom)
         : metersToPixels(this.#radiusValue, this.center.lat, this.map.zoom));
-      const distance = Math.hypot(target.x - center.x, target.y - center.y);
+      const distance = pixelDistance(target.x - center.x, target.y - center.y);
       if (distance > radius + options.tolerance) return null;
     }
     return { layer: this, latlng: this.map.containerPointToLatLng(target), source: "svg" };
@@ -757,7 +769,7 @@ export class CircleMarker extends PathLayer {
   queryHit(target: PointLikeXY, options: ResolvedQueryOptions): QueryHit | null {
     if (!this.map || !this.options.interactive) return null;
     const center = this.map.latLngToContainerPoint(this.center);
-    if (Math.hypot(target.x - center.x, target.y - center.y) > this.radiusPixels + options.tolerance) return null;
+    if (pixelDistance(target.x - center.x, target.y - center.y) > this.radiusPixels + options.tolerance) return null;
     return { layer: this, latlng: this.map.containerPointToLatLng(target), source: "svg" };
   }
 

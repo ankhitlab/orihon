@@ -4,7 +4,8 @@ import { InteractiveLayer } from "../interactive-layer.js";
 import { type LayerOptions, type QueryHit, type ResolvedQueryOptions } from "../layer.js";
 import type { Orihon } from "../map.js";
 import type { OverlayContent, PopupOptions } from "../overlays/div-overlay.js";
-import { densifyLatLngs, normalizeDashArray, type PathOptions } from "./vector.js";
+import { CameraTransform, fillMercator01 } from "./mercator-cache.js";
+import { densifyLatLngs, normalizeDashArray, pixelDistance, type PathOptions } from "./vector.js";
 import { rejectStyleAliases } from "../style-contract.js";
 
 export interface CanvasPathBatchOptions extends LayerOptions, PathOptions {
@@ -16,6 +17,24 @@ export interface CanvasPathBatchOptions extends LayerOptions, PathOptions {
 interface PathRing {
   lat: Float64Array;
   lng: Float64Array;
+  /**
+   * Normalised mercator for this ring, built on first draw and reused afterwards.
+   * The camera only scales and translates it, so a redraw costs a multiply and a
+   * subtract per vertex rather than a sine and a logarithm.
+   */
+  mx?: Float64Array;
+  my?: Float64Array;
+}
+
+/** Builds a ring's normalised mercator once, on the frame that first needs it. */
+function cachedMercator(ring: PathRing): { mx: Float64Array; my: Float64Array } {
+  if (!ring.mx || !ring.my) {
+    const n = ring.lat.length;
+    ring.mx = new Float64Array(n);
+    ring.my = new Float64Array(n);
+    fillMercator01(ring.lat, ring.lng, ring.mx, ring.my, n);
+  }
+  return { mx: ring.mx, my: ring.my };
 }
 
 interface PathRecord {
@@ -299,6 +318,9 @@ export class CanvasPathBatch extends InteractiveLayer<CanvasPathBatchOptions, Ca
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
+    // Null under a non-Mercator CRS, which sends every ring down the original path.
+    const camera = CameraTransform.of(this.map);
+
     const view = this.map.getBounds();
     const padLat = (view.north - view.south) * 0.05 + 0.01;
     const padLng = (view.east - view.west) * 0.05 + 0.01;
@@ -318,19 +340,33 @@ export class CanvasPathBatch extends InteractiveLayer<CanvasPathBatchOptions, Ca
       }
 
       ctx.beginPath();
+      // Only arrows read the projected vertices back, and they are off by default.
+      // Collecting them unconditionally allocated an object per vertex per frame.
+      const wantsProjected = !record.closed && Boolean(record.arrow);
       const projectedRings: Array<Array<{ x: number; y: number }>> = [];
       const rings = record.geodesicRings && this.map.crs.code === "EPSG:3857" ? record.geodesicRings : record.rings;
       for (const ring of rings) {
         const n = ring.lat.length;
         if (n < 2) continue;
         const projected: Array<{ x: number; y: number }> = [];
+        // Resolved once per ring: inside the vertex loop this allocated per vertex.
+        const cache = camera ? cachedMercator(ring) : null;
         for (let i = 0; i < n; i++) {
-          const pt = this.map.latLngToContainerPoint({ lat: ring.lat[i], lng: ring.lng[i] });
-          projected.push(pt);
-          if (i === 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
+          let x: number;
+          let y: number;
+          if (camera && cache) {
+            x = camera.x(cache.mx[i]);
+            y = camera.y(cache.my[i]);
+          } else {
+            const pt = this.map.latLngToContainerPoint({ lat: ring.lat[i], lng: ring.lng[i] });
+            x = pt.x;
+            y = pt.y;
+          }
+          if (wantsProjected) projected.push({ x, y });
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
         }
-        projectedRings.push(projected);
+        if (wantsProjected) projectedRings.push(projected);
         if (record.closed) ctx.closePath();
       }
 
@@ -363,9 +399,9 @@ export class CanvasPathBatch extends InteractiveLayer<CanvasPathBatchOptions, Ca
 function canvasSegmentDistance(target: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  if (!dx && !dy) return Math.hypot(target.x - a.x, target.y - a.y);
+  if (!dx && !dy) return pixelDistance(target.x - a.x, target.y - a.y);
   const ratio = Math.max(0, Math.min(1, ((target.x - a.x) * dx + (target.y - a.y) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(target.x - a.x - ratio * dx, target.y - a.y - ratio * dy);
+  return pixelDistance(target.x - a.x - ratio * dx, target.y - a.y - ratio * dy);
 }
 
 function canvasRingContains(target: Point, ring: Point[]): boolean {
