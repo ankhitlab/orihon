@@ -138,6 +138,9 @@ async function embedShowcase() {
 async function embedBench() {
   const dir = join(root, "examples/bench-compare");
   let html = await readFile(join(dir, "index.html"), "utf8");
+  const harness = (await readFile(join(dir, 'harness.js'), 'utf8')).replace(/^export /gm, '').trim();
+  html = html.replace(/\/\/ BEGIN BENCH HARNESS[\s\S]*?\/\/ END BENCH HARNESS/,
+    `// BEGIN BENCH HARNESS\n${harness}\n// END BENCH HARNESS`);
 
   let css =
     (await readMaybe(join(dir, "bench.css"))) ||

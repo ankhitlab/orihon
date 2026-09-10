@@ -1,0 +1,24 @@
+
+> orihon@2.0.1 test:browser
+> node test/browser-smoke.mjs && node test/browser-bundle-sharing.mjs && node test/tile-gpu-browser.mjs && node test/geojson-async-browser.mjs && node test/geojson-query-browser.mjs && node test/heat-browser.mjs && node test/export-png-browser.mjs && node test/popup-geometry-browser.mjs && node test/p1-browser.mjs && node test/object-manager-speed-browser.mjs && node test/webgl-warp-browser.mjs && node test/webgl-point-encoding-browser.mjs
+
+browser artifact smoke ok
+shared browser entries and lazy heat lifecycle ok {
+  before: 0,
+  after: 1,
+  destroyed: true,
+  staleHeat: false,
+  heat: true,
+  identity: true,
+  heatRemoved: true
+}
+tile GPU browser ok · webgl active · webgpu webgl
+GeoJSON Worker ingestion browser test ok
+GeoJSON query browser test ok (svg, canvas, webgl)
+heat browser ok · wasm+contours · webgpu fallback-ready
+exportPng browser composition ok (modules and compressed Standard)
+geometry popup browser acceptance ok (marker, circleMarker, polyline, polygon, rectangle, circle)
+P1 browser acceptance ok
+ObjectManager speed ok · 25000 pts · move 400 · ingest 29ms · layout 45ms · animate avg 3.8ms max 7.6ms · heap 14MB
+webgl warp browser checks passed {"zoomedIn":{"pad":120,"scale":2,"dx":0,"dy":0},"zoomedOut":{"skipped":"no warp transform","pad":120}}
+webgl point encoding browser ok · 460 lit px initially, 463 after re-encode

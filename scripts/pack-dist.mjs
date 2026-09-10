@@ -48,6 +48,11 @@ Prebuilt, minified browser/CDN artifacts. The default ESM and script-tag builds
 contain the explicit Advanced surface; ObjectManager, extra locales and their
 React binding are separate opt-in files.
 
+ESM entries share hashed chunks: deploy every JavaScript file in this directory
+together. Do not copy an entry alone. ObjectManager loads the heat renderer on
+first heat visualization; ordinary points do not download it. The script-tag
+build remains one file.
+
 ## Entries
 
 | Import | Use |
@@ -109,7 +114,7 @@ await writeFile(resolve(out, "package.json"), `${JSON.stringify({
   exports,
   license: "Apache-2.0",
   files: ["**/*.js", "**/*.d.ts", "*.css", "LICENSE", "LICENSE-NOTICE.md", "README.md"],
-  sideEffects: ["./orihon.css", "./draw.css", "./orihon.esm.js", "./orihon.locales.esm.js"],
+  sideEffects: ["./orihon.css", "./draw.css", "./orihon.esm.js", "./orihon.locales.esm.js", "./orihon-*.js"],
   peerDependencies: pkg.peerDependencies,
   peerDependenciesMeta: pkg.peerDependenciesMeta,
   keywords: ["orihon", "map", "gis", "browser", "cdn"],

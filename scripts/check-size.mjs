@@ -17,27 +17,37 @@ const HEADLINE_CEILING_KIB = 150;
  * with too much slack stops catching regressions.
  */
 const budgets = {
-  "orihon.core.esm.js": 18 * kib,
+  "orihon.core.esm.js": 24 * kib,
   // Includes async GeoJSON ingestion plus incremental FeatureSource sync on GeoJSONLayer.
-  "orihon.standard.esm.js": 37 * kib,
+  "orihon.standard.esm.js": 50 * kib,
   // Advanced is explicit and excludes ObjectManager/locales. Its budget is the
   // complete synchronous import closure, not only the entry file.
-  "orihon.esm.js": 120 * kib,
-  "orihon.object-manager.esm.js": 100 * kib,
+  "orihon.esm.js": 135 * kib,
+  "orihon.object-manager.esm.js": 90 * kib,
   "orihon.locales.esm.js": 3 * kib,
-  "orihon.react.esm.js": 36 * kib,
-  "orihon.react-object-manager.esm.js": 100 * kib,
+  "orihon.react.esm.js": 44 * kib,
+  "orihon.react-object-manager.esm.js": 85 * kib,
   // Script-tag build mirrors Advanced; ObjectManager and extra locales are opt-in.
   "orihon.global.js": 125 * kib,
-  "orihon.draw.esm.js": 12 * kib,
-  "orihon.controls.esm.js": 8 * kib,
-  "orihon.geo.esm.js": 2 * kib,
+  "orihon.draw.esm.js": 30 * kib,
+  "orihon.controls.esm.js": 30 * kib,
+  "orihon.geo.esm.js": 4 * kib,
   "orihon.popup-content.esm.js": 5 * kib
 };
 
 const manifest = JSON.parse(await readFile(new URL("../dist/release-manifest.json", import.meta.url), "utf8"));
 
 const failures = [];
+// Multi-entry applications must benefit from sharing, not merely hide bytes in
+// chunks. Budgets count each requested file once across the union of closures.
+for (const [entries, limit] of [
+  [["orihon.esm.js", "orihon.object-manager.esm.js"], 165],
+  [["orihon.standard.esm.js", "orihon.object-manager.esm.js", "orihon.react.esm.js", "orihon.react-object-manager.esm.js"], 120]
+]) {
+  const files = new Set(entries.flatMap(entry => manifest.initialLoads[entry].files));
+  const size = [...files].reduce((sum, file) => sum + manifest.sizes[file].gzipBytes, 0);
+  if (size > limit * kib) failures.push(`${entries.join(' + ')}: ${(size / kib).toFixed(2)} KiB exceeds shared budget ${limit} KiB`);
+}
 for (const [file, budget] of Object.entries(budgets)) {
   const ownSize = manifest.sizes?.[file]?.gzipBytes;
   const actual = manifest.initialLoads?.[file]?.gzipBytes ?? ownSize;
