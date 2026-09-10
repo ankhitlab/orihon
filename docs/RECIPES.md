@@ -47,6 +47,83 @@ const density = webglPointLayer(points, { pointSize: 4, color: "#e11d48" }).addT
 density.setViewTransform({ rotation: 20, pitch: 30 });
 ```
 
+## A Million Points, And Moving Them
+
+At mass scale the cost moves from drawing to allocating. `webglPointLayer` stores points in
+packed typed arrays, so the fastest paths are the ones that never build an object per point.
+
+Load large sources with `setDataAsync()`. It projects across bounded main-thread tasks and
+swaps the GPU snapshot atomically, so the map stays responsive while it ingests:
+
+```js
+await density.setDataAsync(points, { chunkSize: 50_000, yieldMode: "task" });
+```
+
+`points` may be an array, a generator or an async iterable — a generator avoids materialising
+the whole dataset at once.
+
+If you already hold packed buffers — from a worker, a fetch, or your own store — hand them over
+directly with `setPackedData()`. `projectMercator01()` produces the absolute mercator it expects:
+
+```js
+import { projectMercator01 } from "orihon/geo";
+
+const latlng = new Float32Array(count * 2);
+const merc = new Float64Array(count * 2);
+for (let i = 0; i < count; i++) {
+  const { lat, lng } = source[i];
+  const m = projectMercator01(lat, lng);
+  latlng[i * 2] = lat;
+  latlng[i * 2 + 1] = lng;
+  merc[i * 2] = m.x;
+  merc[i * 2 + 1] = m.y;
+}
+
+density.setPackedData(latlng, merc, { adopt: true });
+```
+
+`adopt` takes ownership without copying, so do not reuse those arrays for anything else
+afterwards — the layer is now reading and writing them.
+
+Absolute mercator costs 16 bytes per point by default. Datasets that never go past roughly zoom
+16 can halve that:
+
+```js
+webglPointLayer(points, { mercatorPrecision: "f32" });
+```
+
+Float32 quantises a normalized mercator to about 3e-8, which is a tenth of a pixel at zoom 14
+and half a pixel at 16, but two pixels at 18 and eight at 20 — points visibly wobble as the
+camera moves at those zooms. Keep the default `"f64"` unless the saving matters and the zoom
+range is bounded.
+
+To move points that are already loaded, patch them instead of replacing the set. `patchPoint()`
+writes one position; `patchPoints()` takes flat arrays, sorts and merges the touched slots, and
+uploads them as a few GPU ranges rather than one call per point:
+
+```js
+const indices = new Uint32Array(movingCount);   // point slots to update
+const latLngs = new Float64Array(movingCount * 2); // lat, lng pairs
+
+function onTelemetry(update) {
+  // Fill the two arrays in place — reuse them across frames.
+  density.patchPoints(indices, latLngs, update.count);
+}
+```
+
+Reusing both arrays every frame is the point. Calling `setData()` on each tick allocates an
+object per point per tick, which at a million points is the difference between a live feed and
+a stalled one.
+
+Positions are patched in place, so anything still holding a buffer handed over with
+`setPackedData(..., { adopt: true })` sees the same update — that is how `objectManager` keeps a
+single set of arrays shared with its layer instead of copying them.
+
+With `interactive: true` the layer also keeps your source objects so `click` and `hover` can
+hand them back, but only up to 40,000 points. Past that it keeps the packed buffers alone and
+`pointData` stays empty; hit-testing still works, only the original object is no longer
+attached to the event.
+
 ## Heatmap
 
 Use `heatLayer` for weighted point density with blur and a color gradient:

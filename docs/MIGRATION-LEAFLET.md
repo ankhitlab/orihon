@@ -107,10 +107,74 @@ because its result would be an ambiguous pair no Orihon API accepts back.
 | `L.imageOverlay`, `L.videoOverlay`, `L.svgOverlay` | same names, unprefixed |
 | `L.icon(o)` / `L.divIcon(o)` | `icon(o)` — `iconUrl` builds an `Icon`, `content` builds a `DivIcon` |
 | `layer.addTo(map)` / `layer.remove()` | same |
-| `layer.bindPopup` / `bindTooltip` / `openPopup` / `closePopup` | same, on `InteractiveLayer` |
+| `layer.bindPopup` / `bindTooltip` / `openPopup` / `closePopup` | same names and signatures, on `InteractiveLayer` — but a **string argument is text, not HTML**, see below |
 
 Raster tile layers (`TileLayer`, WMS, WMTS, `GPUTileLayer`) do **not** have `bindPopup`: they
 have no geographic anchor of their own. Use `map.on("click", ...)`.
+
+### Popup and tooltip content is text by default
+
+This is the one item in this document that fails **quietly**. Everything else either compiles
+or throws; this renders, and renders wrong.
+
+Leaflet assigns popup content with `innerHTML`, so markup in a string becomes markup:
+
+```js
+// Leaflet — renders bold
+layer.bindPopup(`<b>${feature.properties.name}</b><br>load ${feature.properties.load}`);
+```
+
+Orihon assigns a string with `textContent`. The same line shows the tags to the user:
+
+```js
+// Orihon — renders the literal text "<b>Hauptbahnhof</b><br>load 88"
+layer.bindPopup(`<b>${feature.properties.name}</b><br>load ${feature.properties.load}`);
+```
+
+That is deliberate. Popup content is usually built from record fields, and a field is exactly
+where an injected `<img onerror=…>` arrives; see [SECURITY.md](./SECURITY.md). Three ways
+forward, in the order you will usually want them:
+
+**Plain text.** Most popups are one line and need nothing else.
+
+```js
+layer.bindPopup(`${feature.properties.name} · load ${feature.properties.load}`);
+```
+
+**Blocks**, from the optional `orihon/popup-content` entry (3 KiB gzip). Structured content
+without a string to escape:
+
+```js
+import { popupContent } from "orihon/popup-content";
+
+layer.bindPopup(popupContent({
+  title: feature.properties.name,
+  children: [
+    { type: "popupText", props: { text: `load ${feature.properties.load}`, tone: "lead" } },
+    { type: "popupText", props: { text: feature.properties.note, tone: "caption" } }
+  ]
+}));
+```
+
+**A DOM node**, when you already have one. `bindPopup` accepts any `Node` and inserts it
+as-is, which is also how React or another framework hands over rendered content:
+
+```js
+const box = document.createElement("div");
+box.append(Object.assign(document.createElement("strong"), { textContent: name }));
+layer.bindPopup(box);
+```
+
+If you genuinely need to render an HTML string — a CMS field, a stored template — the
+`popupHtml` block is the only place Orihon accepts one, and it sanitizes:
+
+```js
+popupContent({ children: [{ type: "popupHtml", props: { html: storedFragment } }] });
+```
+
+The same rule applies to `bindTooltip`, to the `popup` / `tooltip` options on Easy overlays,
+to `geoJSON({ popup })` and to `ObjectManager.bindPopup`. Porting a Leaflet application, grep
+for `bindPopup(` and `popup:` and check every template literal that contains `<`.
 
 ## Controls
 
@@ -174,3 +238,5 @@ existing Leaflet application — start with the table above and reach for these 
 4. Replace animation booleans with `animation: "fly"`, and per-frame `setView` with `updateView`.
 5. Convert seconds to `durationMs`.
 6. Replace writes to `map.options` with the matching setter.
+7. Grep for `bindPopup(`, `bindTooltip(` and `popup:`; any string containing `<` needs plain
+   text, `popupContent()` or a `Node` — it will not throw, it will show the tags.

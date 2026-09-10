@@ -1,4 +1,5 @@
 {
+  "projectMercator01": "const normalized = projectMercator01(55.751244, 37.618423);\nshowResult(normalized);\nreturn normalized;",
   "createMap": "const OSM = \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\";\nconst center = { lat: 55.751244, lng: 37.618423 };\n\n// Контейнер должен иметь высоту: у <div> её нет по умолчанию, и карта останется невидимой.\n// Первый аргумент — id контейнера или сам HTMLElement.\nconst map = createMap(\"map\", { center, zoom: 9, controls: true, locale: \"ru\" });\ntileLayer(OSM, { attribution: \"© OpenStreetMap contributors\" }).addTo(map);\n\nconsole.log({ center: map.getCenter(), zoom: map.getZoom(), isDestroyed: map.isDestroyed });",
   "featureGroup": "const group = featureGroup([\n  marker(({ lat: 55.75, lng: 37.62 })).bindTooltip(\"Центр\"),\n  circle(({ lat: 55.75, lng: 37.62 }), { radiusMeters: 12000 }, { stroke: \"#43d5c7\", fillOpacity: 0.14 })\n]).addTo(map);\nmap.fitBounds(group.getBounds(), { padding: 24 });\nreturn group;",
   "tileLayer": "const layer = tileLayer(OSM, { attribution: \"© OpenStreetMap\", renderer: \"auto\" }).addTo(map);\nshowResult(layer.getStats?.() ?? \"Слой тайлов добавлен\");\nreturn layer;",

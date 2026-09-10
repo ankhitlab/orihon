@@ -23,7 +23,7 @@
     <span class="version">v2.0.1</span>
   </header>
   <aside class="sidebar" data-sidebar>
-    <div class="sidebar-intro"><a href="/examples/developer-guide/">Все функции</a><span>105 страниц</span></div>
+    <div class="sidebar-intro"><a href="/examples/developer-guide/">Все функции</a><span>106 страниц</span></div>
     <nav aria-label="Функции Orihon Maps"><section class="nav-group" data-nav-group>
       <h2>Карта и камера</h2>
       <div class="nav-links"><a data-api-link data-search="createmap создаёт карту orihon внутри указанного html-контейнера и настраивает начальный центр, масштаб и элементы управления." href="/examples/developer-guide/functions/createMap/"><code>createMap</code></a><a data-api-link data-search="featuregroup объединяет несколько интерактивных слоёв: события, добавление на карту и вычисление общей области выполняются как для одного объекта." href="/examples/developer-guide/functions/featureGroup/"><code>featureGroup</code></a></div>
@@ -53,7 +53,7 @@
       <div class="nav-links"><a data-api-link data-search="heatlayer создаёт единый интерактивный слой тепловой поверхности, изолиний или их комбинации." href="/examples/developer-guide/functions/heatLayer/"><code>heatLayer</code></a><a data-api-link data-search="heatsupport асинхронно сообщает, доступны ли ускоренные wasm и webgpu backend’ы в текущей среде." href="/examples/developer-guide/functions/heatSupport/"><code>heatSupport</code></a></div>
     </section><section class="nav-group" data-nav-group>
       <h2>Производительность и инфраструктура</h2>
-      <div class="nav-links"><a data-api-link data-search="offlinetilecache управляет предварительной загрузкой тайлов в cache storage для последующей работы без сети." href="/examples/developer-guide/functions/offlineTileCache/"><code>offlineTileCache</code></a><a data-api-link data-search="performanceinspector собирает и показывает fps, задержки кадров, количество слоёв и другие показатели работающей карты." href="/examples/developer-guide/functions/performanceInspector/"><code>performanceInspector</code></a><a data-api-link data-search="createmapadapter оборачивает жизненный цикл карты в небольшой adapter для интеграции с ui-фреймворками." href="/examples/developer-guide/functions/createMapAdapter/"><code>createMapAdapter</code></a><a data-api-link data-search="defineorihonelement регистрирует web component, позволяющий создавать карту декларативным html-тегом." href="/examples/developer-guide/functions/defineOrihonElement/"><code>defineOrihonElement</code></a><a data-api-link data-search="creategeometryworkerpool создаёт принадлежащий вызывающему пул web workers для подготовки больших массивов геометрии вне main thread." href="/examples/developer-guide/functions/createGeometryWorkerPool/"><code>createGeometryWorkerPool</code></a></div>
+      <div class="nav-links"><a data-api-link data-search="offlinetilecache управляет предварительной загрузкой тайлов в cache storage для последующей работы без сети." href="/examples/developer-guide/functions/offlineTileCache/"><code>offlineTileCache</code></a><a data-api-link data-search="performanceinspector собирает и показывает fps, задержки кадров, количество слоёв и другие показатели работающей карты." href="/examples/developer-guide/functions/performanceInspector/"><code>performanceInspector</code></a><a data-api-link data-search="createmapadapter оборачивает жизненный цикл карты в небольшой adapter для интеграции с ui-фреймворками." href="/examples/developer-guide/functions/createMapAdapter/"><code>createMapAdapter</code></a><a data-api-link data-search="defineorihonelement регистрирует web component, позволяющий создавать карту декларативным html-тегом." href="/examples/developer-guide/functions/defineOrihonElement/"><code>defineOrihonElement</code></a><a data-api-link data-search="creategeometryworkerpool создаёт принадлежащий вызывающему пул web workers для подготовки больших массивов геометрии вне main thread." href="/examples/developer-guide/functions/createGeometryWorkerPool/"><code>createGeometryWorkerPool</code></a><a data-api-link data-search="projectmercator01 переводит широту и долготу в нормализованные координаты web mercator без масштаба zoom." href="/examples/developer-guide/functions/projectMercator01/"><code>projectMercator01</code></a></div>
     </section><section class="nav-group" data-nav-group>
       <h2>Локализация</h2>
       <div class="nav-links"><a data-api-link data-search="resolvelocale преобразует имя языка или частичный словарь переводов в полный набор текстов интерфейса." href="/examples/developer-guide/functions/resolveLocale/"><code>resolveLocale</code></a><a data-api-link data-search="ensurelocalepacks асинхронно загружает дополнительные встроенные переводы перед использованием языка, отличного от английского." href="/examples/developer-guide/functions/ensureLocalePacks/"><code>ensureLocalePacks</code></a><a data-api-link data-search="registerlocalepacks регистрирует встроенные или пользовательские таблицы переводов, доступные всем новым картам." href="/examples/developer-guide/functions/registerLocalePacks/"><code>registerLocalePacks</code></a><a data-api-link data-search="resolvedrawlocale возвращает набор подписей draw для языка или сливает пользовательские строки с базовым набором." href="/examples/developer-guide/functions/resolveDrawLocale/"><code>resolveDrawLocale</code></a></div>
@@ -61,10 +61,10 @@
     <p class="empty-search" data-empty-search hidden>Ничего не найдено.</p>
   </aside>
   <main class="content"><section class="hero">
-    <p class="eyebrow">orihon@2.0.1 · 105 функций из текущих TypeScript-входов</p>
+    <p class="eyebrow">orihon@2.0.1 · 106 функций из текущих TypeScript-входов</p>
     <h1>Руководство разработчика</h1>
     <p>Каждая публичная функция — своя страница: сигнатура, параметры и пример, который выполняется здесь же на карте. Ниже — весь каталог: команда, вход, из которого её импортируют, и что она делает. Список берётся из входов <code>src/</code>, поэтому удалённая функция исчезает, а новая появляется сама.</p>
-    <div class="hero-badges"><span>105 функций</span><span>11 разделов</span><span>Core · Standard · Advanced</span></div>
+    <div class="hero-badges"><span>106 функций</span><span>11 разделов</span><span>Core · Standard · Advanced</span></div>
   </section>
   <section class="doc-section" id="с-чего-начать">
     <h2>С чего начать</h2>
@@ -537,7 +537,7 @@ const map = createMap(&quot;map&quot;, {
       </tr></tbody>
       </table></div>
     </section><section class="api-group" id="производительность-и-инфраструктура">
-      <div class="group-heading"><div><p class="eyebrow">Раздел</p><h2>Производительность и инфраструктура</h2></div><span>5</span></div>
+      <div class="group-heading"><div><p class="eyebrow">Раздел</p><h2>Производительность и инфраструктура</h2></div><span>6</span></div>
       <p class="group-description">Workers, offline-кэш, адаптеры, инспекция и служебные структуры.</p>
       <div class="table-wrap"><table class="api-table">
         <thead><tr><th>Команда</th><th>Импорт из</th><th>Что делает</th></tr></thead>
@@ -561,6 +561,10 @@ const map = createMap(&quot;map&quot;, {
         <td><a href="./functions/createGeometryWorkerPool/"><code>createGeometryWorkerPool()</code></a></td>
         <td><code>orihon/advanced</code></td>
         <td>Создаёт принадлежащий вызывающему пул Web Workers для подготовки больших массивов геометрии вне main thread.</td>
+      </tr><tr>
+        <td><a href="./functions/projectMercator01/"><code>projectMercator01()</code></a></td>
+        <td><code>orihon/advanced</code></td>
+        <td>Переводит широту и долготу в нормализованные координаты Web Mercator без масштаба zoom.</td>
       </tr></tbody>
       </table></div>
     </section><section class="api-group" id="локализация">

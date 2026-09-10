@@ -370,21 +370,25 @@ Run the benchmarks rather than relying on a headline number; browser, GPU, datas
 
 ## Size
 
-Nothing Orihon ships crosses **150 KiB gzip**. `npm run size` fails the build when a published artifact exceeds its budget and checks this table against `dist/release-manifest.json`.
+Each individual entry's initial JavaScript load stays below **150 KiB gzip**. `npm run size` checks the complete static import closure against the budgets below and `dist/release-manifest.json`. Optional dynamic imports and CSS are additional.
+
+Browser ESM entries share implementation chunks, including class identities, registries and React context. Deploy the entries and all hashed chunks together. Combining entries downloads shared chunks once; isolated Core/Standard loads may be larger than their former separately optimized bundles. The script-tag build remains self-contained. Additional combined budgets count the union of requested files: Advanced + ObjectManager ≤ 165 KiB, Standard + ObjectManager + both React bindings ≤ 120 KiB (gzip).
+
+ObjectManager loads its heat renderer when a heat visualization is first rendered. While loading, updates are coalesced into the latest scene state; the normal render event follows renderer availability. Download failures emit `sceneerror` with `{ error }`, and a later render can retry. Removing or destroying the manager prevents stale heat layers from being attached. Public mutation methods retain their synchronous return values; first heat presentation now includes a module-loading step.
 
 | Artifact | Budget | What it carries |
 | --- | ---: | --- |
-| `orihon.geo.esm.js` | ≤ 2 KiB gzip | Geometry helpers only |
+| `orihon.geo.esm.js` | ≤ 4 KiB gzip | Geometry helpers only |
 | `orihon.popup-content.esm.js` | ≤ 5 KiB gzip | Popup content blocks |
-| `orihon.controls.esm.js` | ≤ 8 KiB gzip | Optional controls |
-| `orihon.draw.esm.js` | ≤ 12 KiB gzip | Draw/edit tools |
-| `orihon.core.esm.js` | ≤ 18 KiB gzip | Map, events, geometry, DOM tiles |
+| `orihon.controls.esm.js` | ≤ 30 KiB gzip | Optional controls |
+| `orihon.draw.esm.js` | ≤ 30 KiB gzip | Draw/edit tools |
+| `orihon.core.esm.js` | ≤ 24 KiB gzip | Map, events, geometry, DOM tiles |
 | `orihon.locales.esm.js` | ≤ 3 KiB gzip | Optional non-English locale packs |
-| `orihon.react.esm.js` | ≤ 36 KiB gzip | Base React bindings |
-| `orihon.standard.esm.js` | ≤ 37 KiB gzip | Everyday GIS, no GPU or ObjectManager |
-| `orihon.object-manager.esm.js` | ≤ 100 KiB gzip | ObjectManager without Advanced GPU integrations |
-| `orihon.react-object-manager.esm.js` | ≤ 100 KiB gzip | React ObjectManager binding |
-| `orihon.esm.js` | ≤ 120 KiB gzip | Advanced: Standard + GPU, MVT and WASM; no ObjectManager or extra locales |
+| `orihon.react.esm.js` | ≤ 44 KiB gzip | Base React bindings |
+| `orihon.standard.esm.js` | ≤ 50 KiB gzip | Everyday GIS, no GPU or ObjectManager |
+| `orihon.object-manager.esm.js` | ≤ 90 KiB gzip | ObjectManager without Advanced GPU integrations |
+| `orihon.react-object-manager.esm.js` | ≤ 85 KiB gzip | React ObjectManager binding |
+| `orihon.esm.js` | ≤ 135 KiB gzip | Advanced: Standard + GPU, MVT and WASM; no ObjectManager or extra locales |
 | `orihon.global.js` | ≤ 125 KiB gzip | Standalone Advanced script-tag build |
 
 Prefer the smallest entry point that contains the capability you need. Exact raw and gzip sizes for the current build are written to `dist/release-manifest.json`.

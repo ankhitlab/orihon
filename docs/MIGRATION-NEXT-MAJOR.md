@@ -515,6 +515,38 @@ controlled set of children, use `new FeatureGroup<MyEvents>()` to declare its ma
 Layers without their own events retain typed base add/remove events and the
 custom-name fallback; no synthetic load/click events have been added.
 
+## WebGL point layer stores positions once
+
+`webglPointLayer` used to keep three copies of every position: float32 degrees,
+float64 absolute mercator, and a float32 camera-relative copy for the GPU — 32
+bytes per point. Absolute mercator is now the single source of truth, and the
+other two are derived, which halves a non-interactive layer to 16 bytes per point.
+
+`points` and `mercator` are getters rather than fields, so they can no longer be
+assigned to:
+
+```js
+layer.points = someArray;   // TypeError — use setData() or setPackedData()
+```
+
+`mercator` is deprecated. The camera-relative buffer is streamed to the GPU through
+a shared 256 KB window instead of being stored, so reading the property builds a
+fresh array each time. Nothing in the library reads it; if you need positions, use
+`getMercatorAbs()` for the stored absolute buffer or `points` for degrees.
+
+`points` is unchanged for interactive layers. A non-interactive layer no longer
+stores degrees at all and derives them from the mercator buffer on first read,
+caching the result — so values come back as the exact inverse projection rather
+than the float32 of what you passed in. The two agree to well under 1e-5 degrees.
+
+`getStats().bufferBytes` reports what is actually held, so it drops accordingly and
+grows by 8 bytes per point the first time something reads `points`.
+
+New: `mercatorPrecision: "f32"` halves mercator storage to 8 bytes per point for
+datasets bounded below roughly zoom 16 — above that, quantisation reaches a pixel
+and points visibly wobble. Because positions now have a single source of truth,
+that precision propagates to `points`, event payloads and hit-testing.
+
 ## Remaining review work
 
 Renderer registration / import-order capability coupling, ObjectManager identity
@@ -522,3 +554,8 @@ Renderer registration / import-order capability coupling, ObjectManager identity
 and must be completed before a next-major release. `tileLayer()` now returns the
 shared `RasterTileLayer` contract; explicit backend failures still fall back to DOM
 for `"auto"` / unavailable GPU.
+
+
+## Performance and safety review (2026-09-09)
+
+`ObjectManager.update/updateObjects` now reject unknown IDs before mutating a batch; use `add` or `reconcile` for insertion. `points.replace` replaces its collection even when `clearMap` is false. Transaction events publish deltas without a full snapshot; the transaction result still exposes a lazy snapshot. SSE clients must handle `resync_required` by fetching a fresh snapshot before reconnecting. Remote reconciliation is opt-in. See [contracts, examples and limits](PERFORMANCE-OBJECT-MANAGER.md).

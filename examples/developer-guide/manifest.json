@@ -711,6 +711,13 @@
       "url": "./functions/createGeometryWorkerPool/"
     },
     {
+      "name": "projectMercator01",
+      "group": "Производительность и инфраструктура",
+      "entry": "orihon/advanced",
+      "summary": "Переводит широту и долготу в нормализованные координаты Web Mercator без масштаба zoom.",
+      "url": "./functions/projectMercator01/"
+    },
+    {
       "name": "resolveLocale",
       "group": "Локализация",
       "entry": "orihon/standard",
