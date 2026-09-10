@@ -6,6 +6,7 @@ import { DestroyedError } from "./errors.js";
 import { Evented } from "./events.js";
 import { LatLng, LatLngBounds, Point, latLng, bounds, point, TILE_SIZE, distance, type LatLngBoundsLike, type LatLngLike, type PointLike } from "./geo.js";
 import type { Layer, QueryHit, QueryOptions, ResolvedQueryOptions } from "./layer.js";
+import { resolveLayerQueryHit } from "./layer.js";
 import { AttributionControl, ScaleControl, ZoomControl, type Control } from "./ui/control.js";
 import { ensureLocalePacks, localePackLoaded, resolveLocale, type OrihonLocale, type LocaleInput } from "./ui/locale.js";
 import type { ExportPngOptions, PrintMapOptions } from "./services/map-export.js";
@@ -973,7 +974,7 @@ export class Orihon extends Evented<MapEventMap> {
       const result = layer.queryHit?.(target, normalized);
       if (!result) continue;
       for (const hit of Array.isArray(result) ? result : [result]) {
-        hits.push(hit);
+          hits.push(resolveLayerQueryHit(hit));
         if (hits.length >= normalized.limit) break;
       }
     }
@@ -1181,12 +1182,33 @@ export class Orihon extends Evented<MapEventMap> {
     return this;
   }
 
+  /**
+   * Projects `value` and shifts it by the pixel origin, which is what both public
+   * projection methods do.
+   *
+   * `subtract()` allocates a second Point on top of the one `project()` just built,
+   * and this runs once per vertex in every canvas path, cluster and GeoJSON redraw,
+   * so the built-in projections fold the origin into the Point they already own.
+   * That is only safe because we know those return a freshly built Point; a CRS
+   * supplied by a caller may hand back a cached instance, and mutating it would
+   * corrupt state we do not own, so anything else keeps the copying path.
+   */
+  #projectFromOrigin(value: LatLngLike): Point {
+    const projected = this.crs.project(value, this.#zoom);
+    if (this.crs !== CRS.EPSG3857 && this.crs !== CRS.Simple) {
+      return projected.subtract(this.#pixelOrigin);
+    }
+    projected.x -= this.#pixelOrigin.x;
+    projected.y -= this.#pixelOrigin.y;
+    return projected;
+  }
+
   latLngToLayerPoint(value: LatLngLike): Point {
-    return this.crs.project(value, this.#zoom).subtract(this.#pixelOrigin);
+    return this.#projectFromOrigin(value);
   }
 
   latLngToContainerPoint(value: LatLngLike): Point {
-    return this.crs.project(value, this.#zoom).subtract(this.#pixelOrigin);
+    return this.#projectFromOrigin(value);
   }
 
   containerPointToLatLng(value: PointLike): LatLng {
