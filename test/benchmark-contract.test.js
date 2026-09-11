@@ -43,7 +43,10 @@ test("browser benchmark pins the current package and rebuilds local dist", async
   assert.match(html, /import\("\/dist\/orihon\.esm\.js" \+ localBuild\)/);
   assert.match(html, /"\?bench=" \+ Date\.now\(\)\.toString\(36\)/);
   assert.match(html, /retainedHeap/);
-  assert.match(html, /NATIVE_GEOJSON_LINE_MAX\s*=\s*50_000/);
+  // The Leaflet/OpenLayers cap sits at the largest count the page offers: both were measured to
+  // finish a million LineStrings. MapLibre keeps its own, lower, compact-path threshold.
+  assert.match(html, /NATIVE_GEOJSON_LINE_MAX\s*=\s*1_000_000/);
+  assert.match(html, /MAPLIBRE_COMPACT_GEOJSON_MIN\s*=\s*50_000/);
   assert.match(html, /waitForMapLibreSource\(map, "lines"/);
   assert.match(html, /createCompactLineGeoJSONUrl/);
   assert.match(html, /MultiLineString/);

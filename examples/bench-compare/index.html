@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Orihon — map engine benchmark</title>
+    <script>performance.setResourceTimingBufferSize(20000);</script>
     <link rel="icon" href="../../assets/brand/svg/orihon-favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,11 +13,11 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" data-orihon-css href="https://cdn.jsdelivr.net/npm/orihon@2.0.1/dist/orihon.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.10.0/ol.css" />
-    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.4.1/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.4.1/dist/maplibre-gl.css" />
     <!-- EMBED:bench-css -->
     <style>
 :root {
@@ -34,6 +35,10 @@
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -116,7 +121,8 @@ body {
   color: var(--ink);
 }
 
-.field select {
+.field select,
+.field input[type="number"] {
   appearance: none;
   min-width: 8.5rem;
   padding: 0.55rem 0.7rem;
@@ -240,6 +246,11 @@ body {
   padding: 1rem;
   overflow: auto;
   background: rgba(6, 12, 18, 0.55);
+}
+
+.panel {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .panel h2 {
@@ -429,20 +440,29 @@ tbody tr.empty td {
         <label class="field">
           <span>Scenario</span>
           <select id="scenario">
+            <optgroup label="Engine comparisons">
             <option value="points" selected>Points (WebGL / canvas)</option>
+            <option value="native-points">Native point features (public APIs)</option>
             <option value="clusters">Clusters / ObjectManager</option>
             <option value="heatmap">Heatmap</option>
-            <option value="isolines">Isolines (from heat)</option>
-            <option value="heatboth">Heatmap + isolines</option>
             <option value="geojson">GeoJSON lines</option>
             <option value="markers">DOM markers</option>
             <option value="popup">Chart popup</option>
             <option value="filter">Filter + clusters</option>
             <option value="rich">Rich OM (styles · cluster · filter · live · popup)</option>
             <option value="live">Live updates</option>
-            <option value="pick">Pick / hit-test</option>
+            <option value="live-sparse">Sparse live updates (1%)</option>
+            <option value="native-pick">Native hit-test APIs</option>
             <option value="basemap">Basemap only</option>
             <option value="tile-scroll">Tile scroll / zoom-out</option>
+            </optgroup>
+            <optgroup label="Orihon capabilities">
+              <option value="isolines">Isolines (from heat)</option>
+              <option value="heatboth">Heatmap + isolines</option>
+            </optgroup>
+            <optgroup label="Diagnostics">
+              <option value="pick">Projection + linear scan</option>
+            </optgroup>
           </select>
         </label>
         <label class="field">
@@ -470,6 +490,8 @@ tbody tr.empty td {
             <option value="3" selected>3 → median</option>
           </select>
         </label>
+        <label class="field"><span>Point distribution</span><select id="distribution"><option value="regional">Regional uniform</option><option value="hotspots">Dense hotspots</option><option value="world">Worldwide</option></select></label>
+        <label class="field"><span>Seed</span><input id="seed" type="number" min="0" max="4294967295" value="12345" style="width:100px" /></label>
         <label class="field" id="heat-evaluation-wrap" hidden>
           <span>Heat evaluation</span>
           <select id="heat-evaluation">
@@ -481,7 +503,8 @@ tbody tr.empty td {
           <span>Preset</span>
           <select id="preset">
             <option value="">Custom</option>
-            <option value="marketing">Marketing 50k</option>
+            <optgroup label="Engine comparisons">
+            <option value="marketing">Baseline 50k</option>
             <option value="stress">Stress 250k</option>
             <option value="stress1m">Stress 1M (no clusters)</option>
             <option value="rich1m">Rich 1M (with clusters)</option>
@@ -489,16 +512,21 @@ tbody tr.empty td {
             <option value="objects">ObjectManager 50k</option>
             <option value="heatmap">Heatmap 50k</option>
             <option value="heatprofile1m">Temperature profile 1M</option>
-            <option value="isolines">Isolines 25k</option>
-            <option value="heatboth">Heat + isolines 25k</option>
             <option value="geojson">GeoJSON 5k</option>
             <option value="markers">Markers 5k</option>
             <option value="popup">Chart popup 100</option>
             <option value="filter">Filter 50k</option>
             <option value="live">Live 50k</option>
-            <option value="pick">Pick 50k</option>
             <option value="basemap">Basemap</option>
             <option value="tile-scroll">Tile scroll / zoom-out</option>
+            </optgroup>
+            <optgroup label="Orihon capabilities">
+              <option value="isolines">Isolines 25k</option>
+              <option value="heatboth">Heat + isolines 25k</option>
+            </optgroup>
+            <optgroup label="Diagnostics">
+              <option value="pick">Projection + linear scan 50k</option>
+            </optgroup>
           </select>
         </label>
         <label class="field check" id="rich-cluster-wrap" hidden>
@@ -522,6 +550,8 @@ tbody tr.empty td {
           <span>MapLibre</span>
         </label>
         <button type="button" id="run" class="run">Run benchmark</button>
+        <label class="field check"><input type="checkbox" id="with-basemap" checked /><span>Include network basemap</span></label>
+        <button type="button" id="cancel" class="ghost" disabled>Cancel run</button>
         <button type="button" id="export" class="ghost" disabled>Export JSON</button>
       </div>
     </header>
@@ -532,6 +562,7 @@ tbody tr.empty td {
         <div class="hud" id="hud">
           <p class="hud-engine" id="hud-engine">Idle</p>
           <p class="hud-status" id="hud-status">Pick a scenario and run.</p>
+          <p class="footnote" id="elapsed" aria-live="off"></p>
         </div>
       </section>
 
@@ -553,7 +584,8 @@ tbody tr.empty td {
 
         <section class="panel sizes">
           <h2>Measured library transfer</h2>
-          <p class="footnote">From Resource Timing after scripts load (encoded size when available).</p>
+          <p class="footnote">Actual JS + CSS traffic, including headers; cache hits can transfer 0 B. Encoded body is shown separately. Missing Timing-Allow-Origin is reported, never treated as zero. This page loads all engines and plugins; these totals are not minimal application bundles.</p>
+          <button type="button" id="measure-bodies" class="ghost">Measure missing decoded bodies</button>
           <ul class="size-list" id="size-list">
             <li><span>Waiting for resources…</span><strong>—</strong></li>
           </ul>
@@ -561,24 +593,78 @@ tbody tr.empty td {
       </aside>
     </main>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ol@v10.10.0/dist/ol.js"></script>
     <!-- EMBED:bench-app -->
     <script type="module">
-import * as maplibregl from "https://unpkg.com/maplibre-gl@6.4.1/dist/maplibre-gl.mjs";
+import * as maplibregl from "https://cdn.jsdelivr.net/npm/maplibre-gl@6.4.1/dist/maplibre-gl.mjs";
+// BEGIN BENCH HARNESS
+function yieldToBrowser() {
+  return globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/** Cooperative adapter work; pauses are intentionally included in wall-clock load time. */
+async function mapInChunks(values, convert, { signal, progress = () => {}, chunkSize = 2000,
+  yieldTask = yieldToBrowser } = {}) {
+  const result = new Array(values.length);
+  for (let start = 0; start < values.length; start += chunkSize) {
+    signal?.throwIfAborted();
+    const end = Math.min(values.length, start + chunkSize);
+    for (let i = start; i < end; i++) result[i] = convert(values[i], i);
+    progress(end, values.length);
+    if (end < values.length) await yieldTask();
+  }
+  signal?.throwIfAborted();
+  return result;
+}
+
+/** No elapsed-time failure: users may cancel a slow but valid native operation. */
+function waitForEvent(target, event, { signal, ready = () => true, start = () => {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const off = (type, handler) => target.un ? target.un(type, handler) : target.off(type, handler);
+    const cleanup = () => { off(event, finish); signal?.removeEventListener('abort', abort); };
+    const finish = () => { if (ready()) { cleanup(); resolve(); } };
+    const abort = () => { cleanup(); reject(signal.reason); };
+    if (signal?.aborted) { reject(signal.reason); return; }
+    target.on(event, finish);
+    signal?.addEventListener('abort', abort, { once: true });
+    try { start(); } catch (error) { cleanup(); reject(error); }
+  });
+}
+
+function summarizeResources(entries) {
+  // Keep repeated requests: transfer is traffic, not unique installed package size.
+  const available = entries.filter(entry => entry.decodedBodySize > 0 || entry.encodedBodySize > 0);
+  return {
+    requests: entries.length,
+    knownRequests: available.length,
+    transferBytes: available.reduce((sum, entry) => sum + entry.transferSize, 0),
+    encodedBytes: available.reduce((sum, entry) => sum + entry.encodedBodySize, 0),
+    decodedBytes: available.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
+    complete: entries.length > 0 && available.length === entries.length,
+  };
+}
+
+function rotatedOrder(ids, repetition) {
+  if (!ids.length) return [];
+  const offset = repetition % ids.length;
+  return [...ids.slice(offset), ...ids.slice(0, offset)];
+}
+// END BENCH HARNESS
 
 /** Minimal MapLibre custom point layer backed by a mercator Float32 buffer.
  * Compatible with MapLibre GL JS v6.4.1 (WebGL2 + CustomRenderMethodInput).
  */
-function createMapLibreRawPoints(map, points, options = {}) {
+async function createMapLibreRawPoints(map, points, options = {}) {
   const id = options.id || "bench-raw-points";
   const color = options.color || [0.176, 0.831, 0.753, 0.78];
-  const pointSize = options.pointSize || 2.5;
+  const pointSize = options.pointSize || 4;
 
   const positions = new Float32Array(points.length * 2);
   for (let i = 0; i < points.length; i++) {
+    if (i % 10000 === 9999) { checkRun(); await sleep(0); }
     const [lat, lng] = points[i];
     const merc = maplibregl.MercatorCoordinate.fromLngLat({ lng, lat });
     positions[i * 2] = merc.x;
@@ -733,12 +819,12 @@ function createMapLibreRawPoints(map, points, options = {}) {
   map.addLayer(layer);
 
   return {
-    updatePoints(nextPoints) {
+    updatePoints(nextPoints, stride = 1) {
       count = nextPoints.length;
       if (positions.length < count * 2) {
         count = positions.length / 2;
       }
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < count; i += stride) {
         const [lat, lng] = nextPoints[i];
         const merc = maplibregl.MercatorCoordinate.fromLngLat({ lng, lat });
         positions[i * 2] = merc.x;
@@ -1224,7 +1310,12 @@ function* toOrihonObjects(objects) {
   for (const object of objects) yield { ...object, coordinates: toOrihonPosition(object.coordinates) };
 }
 
-async function loadOrihon() {
+/**
+ * @param {"core"|"advanced"|"object-manager"} tier which slice of the library to fetch.
+ * "core" is map + raster tiles; "advanced" adds WebGL, heat and GeoJSON; "object-manager"
+ * is advanced plus the managed-object layer.
+ */
+async function loadOrihon(tier = "advanced") {
   const ORIHON_CDN = "https://cdn.jsdelivr.net/npm/orihon@2.0.1/dist/orihon.esm.js";
   const ORIHON_CDN_CSS = "https://cdn.jsdelivr.net/npm/orihon@2.0.1/dist/orihon.css";
   const link =
@@ -1234,11 +1325,15 @@ async function loadOrihon() {
   if (http) {
     const localBuild = "?bench=" + Date.now().toString(36);
     try {
-      const [advanced, objectManager] = await Promise.all([
-        import("/dist/orihon.esm.js" + localBuild),
-        import("/dist/orihon.object-manager.esm.js" + localBuild)
-      ]);
+      if (tier === "core") {
+        const core = await import("/dist/core.js" + localBuild);
+        if (link) link.href = "/dist/orihon.css" + localBuild;
+        return core;
+      }
+      const advanced = await import("/dist/orihon.esm.js" + localBuild);
       if (link) link.href = "/dist/orihon.css" + localBuild;
+      if (tier !== "object-manager") return advanced;
+      const objectManager = await import("/dist/orihon.object-manager.esm.js" + localBuild);
       return { ...advanced, ...objectManager };
     } catch {
       try {
@@ -1254,15 +1349,36 @@ async function loadOrihon() {
   return import(ORIHON_CDN);
 }
 
-const {
-  createMap,
-  geoJSON,
-  heatLayer,
-  marker,
-  objectManager,
-  tileLayer,
-  webglPointLayer
-} = await loadOrihon();
+/*
+ * Which Orihon entry each scenario actually needs. Loading advanced + object-manager for
+ * everything meant a basemap test reported half a megabyte of library it never called.
+ * The size panel now shows what that scenario really pulls in.
+ */
+const SCENARIO_TIER = {
+  // Tiles only — core is createMap + tileLayer and nothing else.
+  basemap: "core",
+  "tile-scroll": "core",
+  clusters: "object-manager",
+  filter: "object-manager",
+  rich: "object-manager",
+  markers: "object-manager",
+  popup: "object-manager"
+};
+
+let createMap, geoJSON, heatLayer, marker, objectManager, tileLayer, webglPointLayer, projectMercator01;
+let loadedTier = null;
+
+/** Load the entry this scenario needs, once per tier, and rebind the helpers. */
+async function ensureOrihonFor(scenario) {
+  const tier = SCENARIO_TIER[scenario] || "advanced";
+  if (loadedTier === tier) return;
+  const api = await loadOrihon(tier);
+  ({ createMap, geoJSON, heatLayer, marker, objectManager, tileLayer, webglPointLayer, projectMercator01 } = api);
+  loadedTier = tier;
+}
+
+// Nothing is loaded until a run starts: fetching an entry up front would put it in the
+// resource list of every scenario, which is exactly the measurement this avoids.
 
 /** Prefer cooperative ingest; older CDN HeatLayer only had sync setData. */
 async function ingestAsync(layer, points, options = { chunkSize: 50_000, yieldMode: "task" }) {
@@ -1396,6 +1512,7 @@ const HEAT_BENCH = {
 };
 
 function mapLibreRasterStyle() {
+  if (!withBasemap()) return { version: 8, sources: {}, layers: [] };
   return {
     version: 8,
     // MapLibre ≥5.11: omit glyphs → local/CSS fonts for symbol text (cluster counts).
@@ -1411,11 +1528,18 @@ const LIVE_MS = 3000;
 const PICK_SAMPLES = 200;
 const FRAME_BUDGET_MS = 1000 / 55; // ~18.2ms — ignore normal vsync jitter around 16.7–16.9
 const MARKER_DOM_CAP = 500;
-// Per-feature GeoJSON object graphs become an OOM risk above this line-count.
-// Leaflet/OpenLayers report n/a; MapLibre switches to a URL-backed compact
-// MultiLineString (the documented large-GeoJSON path), while Orihon keeps its
-// disposable packed chunks.
-const NATIVE_GEOJSON_LINE_MAX = 50_000;
+// Leaflet and OpenLayers build one object graph per feature, which was assumed to
+// exhaust the tab somewhere past 50 000 lines and so was never tried. Measured, it does
+// not: at a million LineStrings Leaflet finishes in 14 s at 0.1 FPS on 2.7 GB and
+// OpenLayers in 5.5 s at 1 FPS on 2.2 GB. Slow and hungry, but a result — and a result
+// says more than "not run". The cap now sits at the largest count the page offers.
+// MapLibre keeps its own URL-backed compact MultiLineString path either way.
+const NATIVE_GEOJSON_LINE_MAX = 1_000_000;
+// Above this MapLibre gets its paths as a Blob URL of bounded MultiLineStrings instead of
+// a main-thread FeatureCollection, so its worker parses text rather than cloning a million
+// Feature objects. This used to share NATIVE_GEOJSON_LINE_MAX; raising that to lift the
+// Leaflet/OpenLayers cap would have silently switched MapLibre back to the slow path.
+const MAPLIBRE_COMPACT_GEOJSON_MIN = 50_000;
 const POINT_CACHE = new Map();
 const POINT_CACHE_MAX_POINTS = 1_250_000;
 let pointCachePoints = 0;
@@ -1458,11 +1582,11 @@ const PRESETS = {
 
 const SCENARIO_NOTES = {
   points:
-    "WebGL points (Orihon + MapLibre raw buffer), Leaflet canvas, OL vector. Orihon uses cooperative setDataAsync() before one atomic GPU-buffer swap; basemap = tileLayer with WebGL renderer. Camera zigzag+zoom ~3s — prefer p95 / drop% over raw FPS.",
+    "Specialized point paths: Orihon WebGL, custom MapLibre raw GL, OpenLayers WebGLPoints, Leaflet canvas. These use different object models; use Native point features for public feature APIs. Data projection/conversion and cooperative pauses are included in Load. Leaflet is attached in bounded batches. Identical camera scale is used (MapLibre zoom minus one). RAF cadence does not prove rendering completion; point shapes and pixel-ratio policies can differ.",
   clusters:
     "Orihon ObjectManager (cooperative addAsync ingest + hierarchical greedy radius clusters + WebGL + worker index), Leaflet.markercluster, OL Cluster, MapLibre GeoJSON cluster. Camera = discrete view steps; Orihon does not rebuild clusters on pan-only moves. 1M uses the mass-point path (`sceneFeatures: false`) so Load is ingest + one greedy zoom, not a full hierarchy clone.",
   live:
-    "Each frame moves ~20% of points for ~3s. Measures update FPS / p95 / drop%. Shows realtime fleet-style cost.",
+    "Every frame changes every fifth point (20%). Orihon patches changed indices; Leaflet and OpenLayers update changed objects; the custom MapLibre adapter projects changed indices and uploads its buffer. Same semantic changes, different public API costs. Load includes data creation; Wall also includes scratch preparation.",
   pick:
     "Same O(n) screen-space nearest scan via each engine’s project() — fair across stacks. Samples are projected from real points (guaranteed on-feature).",
   heatmap:
@@ -1472,9 +1596,9 @@ const SCENARIO_NOTES = {
   heatboth:
     "Orihon only: one heatLayer field feeds continuous colors and matching WASM isolines with labels. The field is not calculated twice. At 100k+ auto may use the linear WebGPU field path and reports GPU→CPU readback before WASM stitching.",
   geojson:
-    "N LineString features (4 vertices each). Orihon cooperatively streams disposable GeoJSON chunks into one packed WebGL path buffer (`retainFeatures:false`) using scheduler/MessageChannel task boundaries; continuous camera motion uses throttled exact GPU frames plus camera-warp frames, followed by an exact settled redraw. Source round-trip is intentionally disabled for this mass-render preset. Heap shows absolute / active Δ; retained is baseline growth across repeated runs.",
+    "Four-vertex paths. Orihon uses disposable packed chunks (retainFeatures:false), MapLibre uses native GeoJSON and groups large inputs into MultiLineStrings; these mass-render paths do not retain equivalent feature identity. Leaflet/OpenLayers per-feature rows remain explicitly unsupported above 50k to avoid OOM.",
   markers:
-    "Marker renderer comparison, hard-capped at 5,000. Orihon keeps all points in DOM and spatially distributes full HTML buttons with a 500-button safety budget; the remainder stays as lightweight SVG <circle> nodes. Leaflet uses HTML Marker nodes, OpenLayers canvas vectors, and MapLibre ≤500 HTML markers over WebGL.",
+    "Mixed marker representations, capped at 5000: HTML, SVG, canvas or GPU according to adapter. This compares implementation choices, not equal DOM-node workloads.",
   filter:
     "Clustered collection with setFilter / equivalent toggled every discrete camera step (~half of points). Stresses reclustering under filter churn.",
   rich:
@@ -1537,6 +1661,57 @@ const els = {
 /** @type {null | { destroy: () => void }} */
 let active = null;
 let busy = false;
+let runController = null;
+let ownedMaps = new Set();
+let ownedManagers = new Set();
+function ownManager(manager) { ownedManagers.add(manager); return manager; }
+let libraryMeasurements = [];
+let projectionPixels = NaN;
+const decodedBodies = new Map();
+function checkRun() { runController?.signal.throwIfAborted(); }
+function ownMap(map) {
+  ownedMaps.add(map);
+  // Markercluster requires a finite zoom ceiling even when the tile layer is omitted.
+  if (typeof L !== 'undefined' && map instanceof L.Map && !Number.isFinite(map.getMaxZoom())) map.setMaxZoom(19);
+  const project = map.project && map.jumpTo ? lng => map.project([lng, CENTER[0]])
+    : map.getPixelFromCoordinate ? lng => { const p = map.getPixelFromCoordinate(ol.proj.fromLonLat([lng, CENTER[0]])); return p && { x: p[0] }; }
+    : lng => map.latLngToContainerPoint({ lat: CENTER[0], lng });
+  try { projectionPixels = Math.abs(project(CENTER[1] + 1).x - project(CENTER[1]).x); } catch { projectionPixels = NaN; }
+  return map;
+}
+function prepareValues(values, convert) {
+  return mapInChunks(values, convert, { signal: runController?.signal,
+    progress(done, total) { if (total >= 100000) els.hudStatus.textContent = `Preparing ${done.toLocaleString()} / ${total.toLocaleString()} — please wait`; } });
+}
+function liveFraction() { return els.scenario.value === 'live-sparse' ? 0.01 : 0.2; }
+function withBasemap() { return ['basemap', 'tile-scroll'].includes(els.scenario.value) || document.getElementById('with-basemap').checked; }
+async function addLeafletChunks(map, markers) {
+  // Large enough to avoid repainting a growing million-marker canvas 1000 times.
+  const chunkSize = 10000;
+  for (let i = 0; i < markers.length; i += chunkSize) {
+    checkRun();
+    L.layerGroup(markers.slice(i, i + chunkSize)).addTo(map);
+    els.hudStatus.textContent = `Attaching ${Math.min(markers.length, i + chunkSize).toLocaleString()} / ${markers.length.toLocaleString()} markers — please wait`;
+    await sleep(0);
+  }
+}
+async function addClusterChunks(map, cluster, markers) {
+  checkRun();
+  if (!map.hasLayer(cluster)) map.addLayer(cluster);
+  await new Promise((resolve, reject) => {
+    const signal = runController?.signal;
+    const abort = () => { cluster.options.chunkProgress = null; reject(signal.reason); };
+    signal?.addEventListener('abort', abort, { once: true });
+    cluster.options.chunkInterval = 16;
+    cluster.options.chunkDelay = 0;
+    cluster.options.chunkProgress = (done, total) => {
+      els.hudStatus.textContent = `Clustering ${done.toLocaleString()} / ${total.toLocaleString()} — please wait`;
+      if (done === total) { signal?.removeEventListener('abort', abort); cluster.options.chunkProgress = null; resolve(); }
+    };
+    try { cluster.addLayers(markers); }
+    catch (error) { signal?.removeEventListener('abort', abort); cluster.options.chunkProgress = null; reject(error); }
+  });
+}
 /** @type {null | object} */
 let lastExport = null;
 
@@ -1550,22 +1725,30 @@ function mulberry32(seed) {
   };
 }
 
-function createPoints(count) {
-  const cached = POINT_CACHE.get(count);
+async function createPoints(count) {
+  const seed = Number(document.getElementById('seed').value) >>> 0;
+  const distribution = document.getElementById('distribution').value;
+  const key = `${distribution}:${seed}:${count}`;
+  const cached = POINT_CACHE.get(key);
   if (cached) return cached;
-  const rand = mulberry32(count ^ 0x9e3779b9);
+  const rand = mulberry32(seed);
   const points = new Array(count);
   for (let i = 0; i < count; i++) {
-    points[i] = [35 + rand() * 28, -15 + rand() * 55];
+    const a = rand(), b = rand();
+    points[i] = distribution === 'world' ? [-70 + a * 140, -180 + b * 360]
+      : distribution === 'hotspots' ? [CENTER[0] + (i % 5 - 2) * 2 + (a - 0.5) * 0.1,
+          CENTER[1] + (i % 7 - 3) * 2 + (b - 0.5) * 0.1]
+      : [35 + a * 28, -15 + b * 55];
+    if (i % 10000 === 9999) { checkRun(); await sleep(0); }
   }
-  return rememberPoints(count, points);
+  return rememberPoints(key, points);
 }
 
 /**
  * Heat sources shaped like the Orihon accordion mark (same silhouette for every engine).
  * Returns [lat, lng, weight]. Cached & frozen — one shared master per count.
  */
-function createHeatPoints(count) {
+async function createHeatPoints(count) {
   const key = `heat:${count}`;
   const cached = POINT_CACHE.get(key);
   if (cached) return cached;
@@ -1685,6 +1868,7 @@ function createHeatPoints(count) {
   let i = 0;
 
   for (; i < nPanel; i++) {
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
     const panel = panels[i % panels.length];
     const [x, y] = sampleInPanel(panel);
     const [lat, lng] = svgToLatLng(x, y);
@@ -1694,17 +1878,20 @@ function createHeatPoints(count) {
     points[i] = Object.freeze([lat, lng, base + rand() * 0.22]);
   }
   for (; i < nPanel + nStroke; i++) {
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
     const stroke = strokes[(rand() * strokes.length) | 0];
     const [x, y] = sampleAlongPolyline(stroke, 2.4);
     const [lat, lng] = svgToLatLng(x, y);
     points[i] = Object.freeze([lat, lng, 0.55 + rand() * 0.25]);
   }
   for (; i < nPanel + nStroke + nRoute; i++) {
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
     const [x, y] = sampleRoute(5.5);
     const [lat, lng] = svgToLatLng(x, y);
     points[i] = Object.freeze([lat, lng, 0.82 + rand() * 0.18]);
   }
   for (; i < nPanel + nStroke + nRoute + nNode; i++) {
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
     const node = nodes[i & 1];
     const ang = rand() * Math.PI * 2;
     const r = Math.sqrt(rand()) * 11;
@@ -1712,6 +1899,7 @@ function createHeatPoints(count) {
     points[i] = Object.freeze([lat, lng, 0.95 + rand() * 0.05]);
   }
   for (; i < count; i++) {
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
     // Soft halo just outside the mark so the silhouette eases out instead of clipping hard.
     const u = rand();
     const v = rand();
@@ -1778,6 +1966,34 @@ function readHeap() {
   return performance.memory?.usedJSHeapSize ?? NaN;
 }
 
+/**
+ * Heap held by the engine under test, measured after GC has settled. Reading
+ * usedJSHeapSize straight after a run counts whatever garbage the harness itself
+ * just produced, which flattered or punished engines depending on their API shape.
+ */
+async function settledHeap() {
+  // Deliberately does not wait on frames. `reclaimHeap()` does, which is fine
+  // between engines, but an engine that renders one frame every 57 seconds — as
+  // OpenLayers does at a million points — would stretch a per-run heap reading
+  // into minutes and time the whole cell out. Wall-clock pauses keep the cost
+  // bounded no matter how slow the engine under test is.
+  let last = readHeap();
+  for (let round = 0; round < 6; round++) {
+    if (typeof globalThis.gc === "function") {
+      try {
+        globalThis.gc();
+      } catch {
+        /* ignore */
+      }
+    }
+    await sleep(40);
+    const now = readHeap();
+    if (Number.isFinite(now) && Number.isFinite(last) && Math.abs(now - last) < 256 * 1024) break;
+    last = now;
+  }
+  return readHeap();
+}
+
 /** Drop previous map, then wait until usedJSHeapSize stops falling (GC settled). */
 async function reclaimHeap({ rounds = 18, pauseMs = 45 } = {}) {
   if (typeof globalThis.gc === "function") {
@@ -1832,7 +2048,8 @@ function median(values) {
 function medianRow(rows) {
   const keys = ["initMs", "loadMs", "fieldMs", "contoursMs", "renderMs", "fps", "p95Ms", "maxMs", "dropPct", "coveragePct", "pickP50", "pickP95", "settleMs", "requests", "reloads", "heap", "heapDelta", "heapBaseline", "markers"];
   const out = { ...rows[0], runs: rows.length, median: true };
-  for (const key of keys) {
+  out.hidden = rows.some(row => row.hidden);
+  for (const key of [...keys, 'wallMs', 'longTasks', 'longestTaskMs']) {
     const values = rows.map((row) => row[key]).filter((value) => Number.isFinite(value));
     out[key] = values.length ? median(values) : rows[0][key];
   }
@@ -1865,11 +2082,25 @@ function unsupportedResult(label, reason) {
   };
 }
 
-async function waitForMapLibreSource(map, sourceId, timeoutMs = 30_000) {
+async function waitForMapLibreLoad(map) {
+  checkRun();
+  await new Promise((resolve, reject) => {
+    const signal = runController?.signal;
+    const cleanup = () => { map.off('load', load); map.off('error', fail); signal?.removeEventListener('abort', abort); };
+    const load = () => { cleanup(); resolve(); };
+    const fail = event => { cleanup(); reject(event.error || new Error('MapLibre load failed')); };
+    const abort = () => { cleanup(); reject(signal.reason); };
+    map.on('load', load); map.on('error', fail); signal?.addEventListener('abort', abort, { once: true });
+    if (map.loaded()) load();
+  });
+}
+
+async function waitForMapLibreSource(map, sourceId, _legacyTimeoutMs) {
+  checkRun();
   if (map.isSourceLoaded(sourceId)) return;
   await new Promise((resolve, reject) => {
     const cleanup = () => {
-      clearTimeout(timer);
+      runController?.signal.removeEventListener('abort', onAbort);
       map.off("sourcedata", onSource);
       map.off("error", onError);
     };
@@ -1883,16 +2114,16 @@ async function waitForMapLibreSource(map, sourceId, timeoutMs = 30_000) {
       cleanup();
       reject(event.error || new Error(`MapLibre source ${sourceId} failed`));
     };
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`MapLibre source ${sourceId} timed out after ${timeoutMs} ms`));
-    }, timeoutMs);
+    const onAbort = () => { cleanup(); reject(runController.signal.reason); };
+    runController?.signal.addEventListener('abort', onAbort, { once: true });
     map.on("sourcedata", onSource);
     map.on("error", onError);
   });
 }
 
 async function clearStage({ settleMs = 160 } = {}) {
+  for (const manager of ownedManagers) { try { manager.destroy(); } catch { /* Continue releasing maps. */ } }
+  ownedManagers.clear();
   if (active) {
     try {
       active.destroy();
@@ -1901,6 +2132,14 @@ async function clearStage({ settleMs = 160 } = {}) {
     }
     active = null;
   }
+  for (const map of ownedMaps) {
+    try {
+      if (map.dispose) { map.setTarget(null); map.dispose(); }
+      else if (map.destroy) map.destroy();
+      else map.remove();
+    } catch { /* A runner may already have disposed its map. */ }
+  }
+  ownedMaps.clear();
   els.stage.replaceChildren();
   // Let detach + WebGL loseContext settle before the next engine allocates again.
   await waitFrames(4);
@@ -1917,9 +2156,10 @@ async function clearStage({ settleMs = 160 } = {}) {
 }
 
 function waitFrames(count = 2) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let left = count;
     const step = () => {
+      if (runController?.signal.aborted) { reject(runController.signal.reason); return; }
       left -= 1;
       if (left <= 0) resolve();
       else requestAnimationFrame(step);
@@ -1929,6 +2169,7 @@ function waitFrames(count = 2) {
 }
 
 function sleep(ms) {
+  if (ms === 0) return yieldToBrowser();
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -2032,8 +2273,9 @@ async function stressCamera(applyView, durationMs = STRESS_MS, baseZoom = ZOOM) 
   const deltas = [];
   let last = 0;
   const start = performance.now();
-  await new Promise((resolve) => {
-    const step = (time) => {
+  do {
+      checkRun();
+      const time = await new Promise(requestAnimationFrame);
       if (last) deltas.push(time - last);
       last = time;
       const elapsed = time - start;
@@ -2043,11 +2285,7 @@ async function stressCamera(applyView, durationMs = STRESS_MS, baseZoom = ZOOM) 
         CENTER[1] + Math.cos(phase * 1.35) * 14,
         baseZoom + Math.sin(phase * 0.55) * 1.8
       );
-      if (elapsed < durationMs) requestAnimationFrame(step);
-      else resolve();
-    };
-    requestAnimationFrame(step);
-  });
+  } while (performance.now() - start < durationMs || deltas.length < 2);
   return summarizeFrames(deltas);
 }
 
@@ -2168,6 +2406,7 @@ async function stressTileScroll(applyView, isReady, readRequests, readCoverage, 
 /** Discrete camera steps — fair for cluster engines that rebuild on moveend/zoomend. */
 async function stressClusters(applyView, steps = 16, durationMs = STRESS_MS, baseZoom = ZOOM) {
   const deltas = [];
+  let last = 0;
   const slice = durationMs / steps;
   for (let i = 0; i < steps; i++) {
     const phase = (i / Math.max(1, steps - 1)) * Math.PI * 2;
@@ -2176,7 +2415,7 @@ async function stressClusters(applyView, steps = 16, durationMs = STRESS_MS, bas
       CENTER[1] + Math.cos(phase * 1.35) * 14,
       Math.max(3, baseZoom + Math.sin(phase * 0.55) * 1.5)
     );
-    let last = 0;
+
     const sliceStart = performance.now();
     await new Promise((resolve) => {
       const step = (time) => {
@@ -2195,16 +2434,13 @@ async function measureLive(update, durationMs = LIVE_MS) {
   const deltas = [];
   let last = 0;
   const start = performance.now();
-  await new Promise((resolve) => {
-    const step = (time) => {
-      if (last) deltas.push(time - last);
-      last = time;
-      update(time - start);
-      if (time - start < durationMs) requestAnimationFrame(step);
-      else resolve();
-    };
-    requestAnimationFrame(step);
-  });
+  do {
+    checkRun();
+    const time = await new Promise(requestAnimationFrame);
+    if (last) deltas.push(time - last);
+    last = time;
+    await update(time - start);
+  } while (performance.now() - start < durationMs || deltas.length < 2);
   return summarizeFrames(deltas);
 }
 
@@ -2230,9 +2466,9 @@ function* makeObjects(points) {
   }
 }
 
-function makeRichObjects(points) {
+async function makeRichObjects(points) {
   const categories = ["alpha", "beta", "gamma"];
-  return points.map((coordinates, index) => ({
+  return prepareValues(points, (coordinates, index) => ({
     id: index,
     coordinates,
     properties: {
@@ -2486,7 +2722,7 @@ function createMapLibreRichDriver(map, rich, objects) {
       return rich.drawn;
     },
     setView(lat, lng, zoom) {
-      map.jumpTo({ center: [lng, lat], zoom });
+      map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 });
     },
     applyLive(updates) {
       rich.applyLive(updates);
@@ -2583,10 +2819,11 @@ async function addPackedLineFeatures(layer, points, chunkSize = 10_000) {
  * MultiLineStrings preserve every independent four-vertex path without one
  * Feature object per line.
  */
-function createCompactLineGeoJSONUrl(points, chunkSize = 5_000) {
+async function createCompactLineGeoJSONUrl(points, chunkSize = 5_000) {
   const parts = ['{"type":"FeatureCollection","features":['];
   let first = true;
   for (let offset = 0; offset < points.length; offset += chunkSize) {
+    checkRun(); await sleep(0);
     const end = Math.min(points.length, offset + chunkSize);
     const lines = new Array(end - offset);
     for (let i = offset; i < end; i++) {
@@ -2613,16 +2850,20 @@ function createCompactLineGeoJSONUrl(points, chunkSize = 5_000) {
 /** Discrete camera + alternating filter predicate (even steps = active-only). */
 async function stressFilterCamera(applyView, applyFilter, steps = 16, durationMs = STRESS_MS) {
   const deltas = [];
+  let last = 0;
   const slice = durationMs / steps;
   for (let i = 0; i < steps; i++) {
-    applyFilter(i % 2 === 0);
+    checkRun();
+
+    await applyFilter(i % 2 === 0);
+
     const phase = (i / Math.max(1, steps - 1)) * Math.PI * 2;
     applyView(
       CENTER[0] + Math.sin(phase) * 5,
       CENTER[1] + Math.cos(phase * 1.35) * 14,
       Math.max(3, ZOOM + Math.sin(phase * 0.55) * 1.5)
     );
-    let last = 0;
+
     const sliceStart = performance.now();
     await new Promise((resolve) => {
       const step = (time) => {
@@ -2641,14 +2882,9 @@ function jitterPoints(points, t, fraction = 0.2, target = null) {
   const next = target || clonePoints(points);
   const stride = Math.max(1, Math.floor(1 / fraction));
   const phase = t / 180;
-  for (let i = 0; i < points.length; i++) {
-    if (i % stride === 0) {
+  for (let i = 0; i < points.length; i += stride) {
       next[i][0] = points[i][0] + Math.sin(phase + i * 0.01) * 0.35;
       next[i][1] = points[i][1] + Math.cos(phase + i * 0.013) * 0.45;
-    } else if (target) {
-      next[i][0] = points[i][0];
-      next[i][1] = points[i][1];
-    }
   }
   return next;
 }
@@ -2668,14 +2904,32 @@ function pickSamplesFromPoints(points, project, count) {
   return samples;
 }
 
-function measureProjectScan(points, project, samples) {
+async function measureProjectScan(points, project, samples) {
   const times = [];
   for (const sample of samples) {
+    checkRun();
     const t0 = performance.now();
     nearestLatLng(points, project, sample.lx, sample.ly, 16);
     times.push(performance.now() - t0);
+    await sleep(0);
   }
   return times;
+}
+
+async function measureNativePick(samples, query) {
+  const times = [];
+  let hits = 0;
+  for (const sample of samples) {
+    if (sample.lx < 0 || sample.ly < 0 || sample.lx >= els.stage.clientWidth || sample.ly >= els.stage.clientHeight) continue;
+    checkRun();
+    const start = performance.now();
+    const found = query(sample);
+    times.push(performance.now() - start);
+    if (found) hits++;
+    await sleep(0);
+  }
+  if (!times.length || !hits) throw new Error('Native hit-test returned no visible hits; timings are invalid');
+  return { times, hits, samples: times.length };
 }
 
 function nearestLatLng(points, mapProject, x, y, tolerance = 12) {
@@ -2700,34 +2954,52 @@ function nearestLatLng(points, mapProject, x, y, tolerance = 12) {
 async function pointsOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, {
+  const map = ownMap(createMap(host, {
     center: { lat: CENTER[0], lng: CENTER[1] },
     zoom: ZOOM,
     minZoom: 2,
     maxZoom: 12,
     controls: false
-  });
+  }));
   // GPU basemap (CSS-warp while moving) — fair vs MapLibre raster; DOM tiles thrash on every setView.
-  tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19, maxDpr: 1 }).addTo(map);
+  if (withBasemap()) tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19, maxDpr: 1 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const layer = webglPointLayer([], {
-    pointSize: 2.5,
+    pointSize: 4,
     color: "#2dd4bf",
     opacity: 0.78,
     maxDpr: 1.5,
     interactive: false
   }).addTo(map);
-
-  const loadStart = performance.now();
-  await layer.setDataAsync(points.map(toOrihonPosition), { chunkSize: 50_000, yieldMode: "task" });
+  // Symmetric with createMapLibreRawPoints: project into preallocated typed arrays
+  // and hand them over, with the projection inside the measured window for both.
+  // Feeding `points.map(toOrihonPosition)` here measured a million object
+  // allocations that MapLibre was never asked to pay for.
+  if (projectMercator01) {
+    // Only the mercator is built: this layer is not interactive, so it derives degrees
+    // on demand and passing a second array would just make both sides hold 8 bytes per
+    // point for nothing. MapLibre's raw layer keeps exactly one array too.
+    const merc = new Float64Array(points.length * 2);
+    for (let i = 0; i < points.length; i++) {
+      const m = projectMercator01(points[i][0], points[i][1]);
+      merc[i * 2] = m.x;
+      merc[i * 2 + 1] = m.y;
+      if (i % 10000 === 9999) { checkRun(); await sleep(0); }
+    }
+    layer.setPackedData(null, merc, { adopt: true });
+  } else {
+    // Published 2.0.1 has no exported projection; fall back to the object API.
+    await layer.setDataAsync(await prepareValues(points,toOrihonPosition), { chunkSize: 50_000, yieldMode: "task" });
+  }
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressOrihonCamera(map);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.destroy() };
   return {
     name: "Orihon (WebGL)",
@@ -2741,7 +3013,7 @@ async function pointsOrihon(points) {
 async function pointsLeaflet(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
@@ -2749,30 +3021,37 @@ async function pointsLeaflet(points) {
     fadeAnimation: false,
     zoomAnimation: false,
     markerZoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
-
-  const group = L.layerGroup().addTo(map);
-  const renderer = L.canvas({ padding: 0.5 });
   const loadStart = performance.now();
+
+  const renderer = L.canvas({ padding: 0.5 });
+  // Build every marker first, then attach the group once. Adding them one at a time
+  // to a group already on the map ran Leaflet's whole add path — registration plus a
+  // scheduled redraw — per point. `interactive: false` matches what the Orihon and
+  // MapLibre layers here are given: none of them handle events in this scenario.
+  const markers = new Array(points.length);
   for (let i = 0; i < points.length; i++) {
-    L.circleMarker(points[i], {
+    markers[i] = L.circleMarker(points[i], {
       radius: 2,
       stroke: false,
       fillColor: "#2dd4bf",
       fillOpacity: 0.78,
-      renderer
-    }).addTo(group);
+      renderer,
+      interactive: false
+    });
+    if (i % 2000 === 1999) { checkRun(); await sleep(0); }
   }
+  await addLeafletChunks(map, markers);
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressCamera((lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "Leaflet (canvas)", initMs, loadMs, ...pan, heap };
 }
@@ -2780,43 +3059,49 @@ async function pointsLeaflet(points) {
 async function pointsOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const source = new ol.source.Vector({ wrapX: false });
+  // OpenLayers 10 ships a GPU point layer, and this scenario is where every other
+  // engine gets its fastest path — Orihon WebGL, MapLibre a raw GL buffer. Drawing
+  // OL through the canvas vector layer instead was comparing its slow path against
+  // their fast ones. Flat style is the OL 10 form; the older `symbol` object fails
+  // to compile a shader on this version.
   map.addLayer(
-    new ol.layer.Vector({
+    new ol.layer.WebGLPoints({
       source,
-      style: new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: 2,
-          fill: new ol.style.Fill({ color: "rgba(45, 212, 191, 0.78)" })
-        })
-      }),
-      updateWhileAnimating: true,
-      updateWhileInteracting: true
+      disableHitDetection: true,
+      style: {
+        "circle-radius": 2,
+        "circle-fill-color": "#2dd4bf",
+        "circle-opacity": 0.78
+      }
     })
   );
-
-  const loadStart = performance.now();
-  const features = points.map(
+  const features = await prepareValues(points,
     ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
   );
+  const rendered = waitForEvent(map, 'rendercomplete', { signal: runController?.signal });
   source.addFeatures(features);
-  await waitFrames(4);
+  map.render();
+  await rendered;
+  await waitFrames(2);
   const loadMs = performance.now() - loadStart;
 
   const view = map.getView();
@@ -2825,41 +3110,39 @@ async function pointsOpenLayers(points) {
     view.setZoom(zoom);
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
       map.dispose();
     }
   };
-  return { name: "OpenLayers (vector)", initMs, loadMs, ...pan, heap };
+  return { name: "OpenLayers (WebGL points)", initMs, loadMs, ...pan, heap };
 }
 
 async function pointsMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const raw = createMapLibreRawPoints(map, points);
+  const raw = await createMapLibreRawPoints(map, points);
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
-  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }));
+  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       raw.remove();
@@ -2874,12 +3157,13 @@ async function pointsMapLibre(points) {
 async function clustersOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const manager = objectManager({
+  const manager = ownManager(objectManager({
     clusterize: true,
     clusterRadiusPixels: 50,
     clusterMinPoints: 2,
@@ -2890,9 +3174,7 @@ async function clustersOrihon(points) {
     styleByCategory: false,
     visualization: "clusters",
     marker: { interactive: false }
-  });
-
-  const loadStart = performance.now();
+  }));
   await manager.addAsync(toOrihonObjects(makeObjects(points)), {
     chunkSize: 10_000,
     yieldMode: "task",
@@ -2906,7 +3188,7 @@ async function clustersOrihon(points) {
 
   const pan = await stressClusters((lat, lng, zoom) => map.setView({ lat, lng }, zoom));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       manager.destroy();
@@ -2929,18 +3211,19 @@ async function clustersLeaflet(points) {
   }
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     preferCanvas: true,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const cluster = L.markerClusterGroup({
     showCoverageOnHover: false,
@@ -2948,23 +3231,21 @@ async function clustersLeaflet(points) {
     chunkedLoading: true,
     maxClusterRadius: 50
   });
-  const loadStart = performance.now();
-  const markers = points.map((latlng) => L.circleMarker(latlng, { radius: 4, stroke: false, fillColor: "#2dd4bf", fillOpacity: 0.85 }));
-  cluster.addLayers(markers);
-  map.addLayer(cluster);
+  const markers = await prepareValues(points,(latlng) => L.circleMarker(latlng, { radius: 4, stroke: false, fillColor: "#2dd4bf", fillOpacity: 0.85 }));
+  await addClusterChunks(map, cluster, markers);
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressClusters((lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return {
     name: "Leaflet.markercluster",
     initMs,
     loadMs,
     ...pan,
-    markers: cluster.getLayers().length,
+    markers: NaN, // Total stored markers are not a visible-cluster count.
     heap
   };
 }
@@ -2972,33 +3253,40 @@ async function clustersLeaflet(points) {
 async function clustersOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
+  // Load starts here, not at addLayer: building a Feature per point is the bulk of
+  // what this engine has to do to show the data, and Orihon and Leaflet are both
+  // timed from their equivalent step. Starting the clock later measured almost nothing.
+  const loadStart = performance.now();
   const source = new ol.source.Vector({
-    features: points.map(
+    features: await prepareValues(points,
       ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
     )
   });
   const clusterSource = new ol.source.Cluster({ distance: 48, source });
+  const styles = new Map();
   const layer = new ol.layer.Vector({
     source: clusterSource,
     style(feature) {
       const size = feature.get("features").length;
-      return new ol.style.Style({
+      if (styles.has(size)) return styles.get(size);
+      const style = new ol.style.Style({
         image: new ol.style.Circle({
           radius: size > 1 ? 12 : 4,
           fill: new ol.style.Fill({ color: size > 1 ? "#0f766e" : "#2dd4bf" })
@@ -3011,10 +3299,11 @@ async function clustersOpenLayers(points) {
               })
             : undefined
       });
+      styles.set(size, style);
+      return style;
     }
   });
 
-  const loadStart = performance.now();
   map.addLayer(layer);
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
@@ -3025,7 +3314,7 @@ async function clustersOpenLayers(points) {
     view.setZoom(zoom);
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -3045,34 +3334,27 @@ async function clustersOpenLayers(points) {
 async function clustersMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    map.once("load", () => {
-      settled = true;
-      resolve();
-    });
-    map.once("error", (event) => {
-      if (settled) return;
-      reject(event.error || new Error("MapLibre load failed"));
-    });
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
 
-  const features = points.map(([lat, lng]) => ({
+  // Same rule as the other three engines: the clock covers building the data this
+  // engine needs, not just handing the finished structure over.
+  const loadStart = performance.now();
+  const features = await prepareValues(points,([lat, lng]) => ({
     type: "Feature",
     properties: {},
     geometry: { type: "Point", coordinates: [lng, lat] }
   }));
 
-  const loadStart = performance.now();
   map.addSource("clusters", {
     type: "geojson",
     data: { type: "FeatureCollection", features },
@@ -3131,15 +3413,15 @@ async function clustersMapLibre(points) {
   await waitFrames(2);
   const loadMs = performance.now() - loadStart;
 
-  const pan = await stressClusters((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }));
+  const pan = await stressClusters((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }));
   await waitFrames(2);
   let markers = NaN;
   try {
-    markers = map.querySourceFeatures("clusters").length;
+    markers = map.queryRenderedFeatures({ layers: ["clusters", "unclustered"] }).length;
   } catch {
     markers = NaN;
   }
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return {
     name: "MapLibre cluster",
@@ -3156,23 +3438,38 @@ async function clustersMapLibre(points) {
 async function liveOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
-  const layer = webglPointLayer(points.map(toOrihonPosition), {
-    pointSize: 2.5,
+  const loadStart = performance.now();
+  const layer = webglPointLayer(await prepareValues(points,toOrihonPosition), {
+    pointSize: 4,
     color: "#2dd4bf",
     opacity: 0.78,
     maxDpr: 1.5,
     interactive: false
   }).addTo(map);
   await waitFrames(2);
-  const loadMs = 0;
-  const scratch = clonePoints(points);
-  const live = await measureLive((t) => layer.setData(jitterPoints(points, t, 0.2, scratch).map(toOrihonPosition)));
+  const loadMs = performance.now() - loadStart;
+  const scratch = await prepareValues(points, pair => [...pair]);
+  // Reused across frames, exactly like the MapLibre raw layer's `positions` array.
+  // The previous version called `.map(toOrihonPosition)` inside the loop, which
+  // allocated one object per point per frame and measured that, not the engine.
+  // Every index is patched so both engines move the same amount of data per frame.
+  const stride = Math.max(1, Math.floor(1 / liveFraction()));
+  const indices = Uint32Array.from({ length: Math.ceil(points.length / stride) }, (_, i) => i * stride);
+  const flat = new Float64Array(indices.length * 2);
+  const live = await measureLive((t) => {
+    const moved = jitterPoints(points, t, liveFraction(), scratch);
+    for (let i = 0; i < indices.length; i++) {
+      flat[i * 2] = moved[indices[i]][0];
+      flat[i * 2 + 1] = moved[indices[i]][1];
+    }
+    layer.patchPoints(indices, flat);
+  });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       layer.remove();
@@ -3185,30 +3482,36 @@ async function liveOrihon(points) {
 async function liveLeaflet(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     preferCanvas: true,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
   const renderer = L.canvas({ padding: 0.5 });
-  const markers = points.map((latlng) =>
+  // One group attach instead of a map add per marker, and no event wiring — the
+  // other engines in this scenario are not handling events either.
+  const markers = await prepareValues(points,(latlng) =>
     L.circleMarker(latlng, {
       radius: 2,
       stroke: false,
       fillColor: "#2dd4bf",
       fillOpacity: 0.78,
-      renderer
-    }).addTo(map)
+      renderer,
+      interactive: false
+    })
   );
+  await addLeafletChunks(map, markers);
   await waitFrames(2);
-  const stride = Math.max(1, Math.floor(1 / 0.2));
+  const loadMs = performance.now() - loadStart;
+  const stride = Math.max(1, Math.floor(1 / liveFraction()));
   const live = await measureLive((t) => {
     const phase = t / 180;
     for (let i = 0; i < markers.length; i += stride) {
@@ -3219,34 +3522,31 @@ async function liveLeaflet(points) {
     }
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
-  return { name: "Leaflet (canvas)", initMs, loadMs: 0, ...live, heap };
+  return { name: "Leaflet (canvas)", initMs, loadMs, ...live, heap };
 }
 
 async function liveOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const features = points.map(
-    ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
-  );
-  const source = new ol.source.Vector({ features });
-  const map = new ol.Map({
+  const source = new ol.source.Vector({ wrapX: false });
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      }),
-      new ol.layer.Vector({
+      })] : []),
+      // GPU point layer, matching what Orihon and MapLibre get in this scenario.
+      new ol.layer.WebGLPoints({
         source,
-        style: new ol.style.Style({
-          image: new ol.style.Circle({
-            radius: 2,
-            fill: new ol.style.Fill({ color: "rgba(45, 212, 191, 0.78)" })
-          })
-        }),
-        updateWhileAnimating: true,
-        updateWhileInteracting: true
+        disableHitDetection: true,
+        style: {
+          "circle-radius": 2,
+          "circle-fill-color": "#2dd4bf",
+          "circle-opacity": 0.78
+        }
       })
     ],
     view: new ol.View({
@@ -3254,10 +3554,19 @@ async function liveOpenLayers(points) {
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
-  const stride = Math.max(1, Math.floor(1 / 0.2));
+  const loadStart = performance.now();
+  const features = await prepareValues(points,
+    ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
+  );
+  const rendered = waitForEvent(map, 'rendercomplete', { signal: runController?.signal });
+  source.addFeatures(features);
+  map.render();
+  await rendered;
+  const loadMs = performance.now() - loadStart;
+  const stride = Math.max(1, Math.floor(1 / liveFraction()));
   const live = await measureLive((t) => {
     const phase = t / 180;
     for (let i = 0; i < features.length; i += stride) {
@@ -3272,45 +3581,45 @@ async function liveOpenLayers(points) {
     }
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
       map.dispose();
     }
   };
-  return { name: "OpenLayers (vector)", initMs, loadMs: 0, ...live, heap };
+  return { name: "OpenLayers (WebGL points)", initMs, loadMs, ...live, heap };
 }
 
 async function liveMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
-  const raw = createMapLibreRawPoints(map, points);
+  const loadStart = performance.now();
+  const raw = await createMapLibreRawPoints(map, points);
   await waitFrames(2);
-  const scratch = clonePoints(points);
-  const live = await measureLive((t) => raw.updatePoints(jitterPoints(points, t, 0.2, scratch)));
+  const loadMs = performance.now() - loadStart;
+  const scratch = await prepareValues(points, pair => [...pair]);
+  const live = await measureLive((t) => raw.updatePoints(jitterPoints(points, t, liveFraction(), scratch), Math.max(1, Math.floor(1 / liveFraction()))));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       raw.remove();
       map.remove();
     }
   };
-  return { name: "MapLibre (raw GL)", initMs, loadMs: 0, ...live, heap };
+  return { name: "MapLibre (raw GL)", initMs, loadMs, ...live, heap };
 }
 
 /* -------------------- engines: pick -------------------- */
@@ -3318,8 +3627,8 @@ async function liveMapLibre(points) {
 async function pickOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
@@ -3327,21 +3636,23 @@ async function pickOrihon(points) {
   const layer = webglPointLayer([], {
     pointSize: 3,
     color: "#2dd4bf",
-    interactive: false
+    interactive: els.scenario.value === 'native-pick'
   });
-  await layer.setDataAsync(points.map(toOrihonPosition), { chunkSize: 50_000, yieldMode: "task" });
+  await layer.setDataAsync(await prepareValues(points,toOrihonPosition), { chunkSize: 50_000, yieldMode: "task" });
   layer.addTo(map);
   await waitFrames(3);
   const loadMs = performance.now() - loadStart;
 
   const project = (ll) => map.latLngToContainerPoint(toOrihonPosition(ll));
   const samples = pickSamplesFromPoints(points, project, PICK_SAMPLES);
-  const times = measureProjectScan(points, project, samples);
+  const measured = els.scenario.value === 'native-pick'
+    ? await measureNativePick(samples, ({ lx, ly }) => map.query({ x: lx, y: ly }).length > 0) : null;
+  const times = measured?.times || await measureProjectScan(points, project, samples);
   await waitFrames(1);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.destroy() };
   return {
-    name: "Orihon (project scan)",
+    name: measured ? `Orihon map.query (${measured.hits}/${measured.samples} hits)` : "Orihon (project scan)",
     initMs,
     loadMs,
     pickP50: percentile(times, 50),
@@ -3351,39 +3662,45 @@ async function pickOrihon(points) {
 }
 
 async function pickLeaflet(points) {
+  if (els.scenario.value === 'native-pick') return unsupportedResult('Leaflet', 'Core Leaflet has event picking but no public programmatic rendered-feature query. No linear-scan substitute.');
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     preferCanvas: true,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
   const renderer = L.canvas({ padding: 0.5 });
-  for (const latlng of points) {
-    L.circleMarker(latlng, {
+  // Picking here is a screen-space scan over `points`, not Leaflet hit-testing, so
+  // these markers only need to draw — same as the other engines' layers.
+  const markers = new Array(points.length);
+  for (let i = 0; i < points.length; i++) {
+    markers[i] = L.circleMarker(points[i], {
       radius: 3,
       stroke: false,
       fillColor: "#2dd4bf",
       fillOpacity: 0.8,
-      renderer
-    }).addTo(map);
+      renderer,
+      interactive: false
+    });
   }
+  await addLeafletChunks(map, markers);
   await waitFrames(3);
   const loadMs = performance.now() - loadStart;
 
   const project = (ll) => map.latLngToContainerPoint(ll);
   const samples = pickSamplesFromPoints(points, project, PICK_SAMPLES);
-  const times = measureProjectScan(points, project, samples);
-  const heap = readHeap();
+  const times = await measureProjectScan(points, project, samples);
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return {
     name: "Leaflet (project scan)",
@@ -3399,20 +3716,22 @@ async function pickOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
   const source = new ol.source.Vector({ wrapX: false });
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      }),
-      new ol.layer.Vector({
+      })] : []),
+      // Picking is a screen-space scan over the raw points, so this layer only has to
+      // draw — same GPU path the other engines get here.
+      new ol.layer.WebGLPoints({
         source,
-        style: new ol.style.Style({
-          image: new ol.style.Circle({
-            radius: 3,
-            fill: new ol.style.Fill({ color: "rgba(45, 212, 191, 0.8)" })
-          })
-        })
+        style: {
+          "circle-radius": 3,
+          "circle-fill-color": "#2dd4bf",
+          "circle-opacity": 0.8
+        }
       })
     ],
     view: new ol.View({
@@ -3420,16 +3739,19 @@ async function pickOpenLayers(points) {
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  source.addFeatures(
-    points.map(
-      ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
-    )
+  const features = await prepareValues(points,
+    ([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) })
   );
+  const rendered = waitForEvent(map, 'rendercomplete', { signal: runController?.signal });
+  source.addFeatures(
+    features
+  );
+  map.render(); await rendered;
   await waitFrames(3);
   const loadMs = performance.now() - loadStart;
 
@@ -3438,8 +3760,10 @@ async function pickOpenLayers(points) {
     return pixel ? { x: pixel[0], y: pixel[1] } : null;
   };
   const samples = pickSamplesFromPoints(points, project, PICK_SAMPLES);
-  const times = measureProjectScan(points, project, samples);
-  const heap = readHeap();
+  const measured = els.scenario.value === 'native-pick'
+    ? await measureNativePick(samples, ({ lx, ly }) => map.forEachFeatureAtPixel([lx, ly], () => true, { hitTolerance: 3 })) : null;
+  const times = measured?.times || await measureProjectScan(points, project, samples);
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -3447,7 +3771,7 @@ async function pickOpenLayers(points) {
     }
   };
   return {
-    name: "OpenLayers (project scan)",
+    name: measured ? `OpenLayers forEachFeatureAtPixel (${measured.hits}/${measured.samples} hits)` : "OpenLayers (project scan)",
     initMs,
     loadMs,
     pickP50: percentile(times, 50),
@@ -3459,22 +3783,20 @@ async function pickOpenLayers(points) {
 async function pickMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const features = points.map(([lat, lng], id) => ({
+  const features = await prepareValues(points,([lat, lng], id) => ({
     type: "Feature",
     properties: { id },
     geometry: { type: "Point", coordinates: [lng, lat] }
@@ -3495,11 +3817,13 @@ async function pickMapLibre(points) {
     return { x: pt.x, y: pt.y };
   };
   const samples = pickSamplesFromPoints(points, project, PICK_SAMPLES);
-  const times = measureProjectScan(points, project, samples);
-  const heap = readHeap();
+  const measured = els.scenario.value === 'native-pick'
+    ? await measureNativePick(samples, ({ lx, ly }) => map.queryRenderedFeatures([lx, ly], { layers: ['pick'] }).length > 0) : null;
+  const times = measured?.times || await measureProjectScan(points, project, samples);
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return {
-    name: "MapLibre (project scan)",
+    name: measured ? `MapLibre queryRenderedFeatures (${measured.hits}/${measured.samples} hits)` : "MapLibre (project scan)",
     initMs,
     loadMs,
     pickP50: percentile(times, 50),
@@ -3513,8 +3837,8 @@ async function pickMapLibre(points) {
 async function heatOrihon(points, mode) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: HEAT_BENCH.zoom, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: HEAT_BENCH.zoom, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
@@ -3607,14 +3931,14 @@ async function heatmapLeaflet(points) {
   }
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: HEAT_BENCH.zoom,
     zoomControl: false,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
@@ -3656,21 +3980,23 @@ async function heatmapLeaflet(points) {
 async function heatmapOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: HEAT_BENCH.zoom
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const source = new ol.source.Vector({ wrapX: false });
   map.addLayer(
@@ -3684,10 +4010,8 @@ async function heatmapOpenLayers(points) {
       gradient: HEAT_BENCH.olGradient
     })
   );
-
-  const loadStart = performance.now();
   source.addFeatures(
-    points.map(([lat, lng, weight = 1]) =>
+    await prepareValues(points,([lat, lng, weight = 1]) =>
       new ol.Feature({
         geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])),
         weight
@@ -3722,18 +4046,16 @@ async function heatmapOpenLayers(points) {
 async function heatmapMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: HEAT_BENCH.zoom,
+    zoom: (HEAT_BENCH.zoom) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   map.resize();
   const initMs = performance.now() - initStart;
 
@@ -3742,7 +4064,7 @@ async function heatmapMapLibre(points) {
   // (features.length = 0 wiped the heat off-screen). Empty only in destroy().
   const heatData = {
     type: "FeatureCollection",
-    features: points.map(([lat, lng, weight = 1]) => ({
+    features: await prepareValues(points,([lat, lng, weight = 1]) => ({
       type: "Feature",
       properties: { weight },
       geometry: { type: "Point", coordinates: [lng, lat] }
@@ -3786,11 +4108,11 @@ async function heatmapMapLibre(points) {
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressCamera(
-    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }),
+    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }),
     STRESS_MS,
     HEAT_BENCH.zoom
   );
-  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: HEAT_BENCH.zoom });
+  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: (HEAT_BENCH.zoom) - 1 });
   await waitFrames(3);
   active = {
     destroy() {
@@ -3856,9 +4178,9 @@ const heatBothMapLibre = isolinesUnsupported(
 async function geojsonOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
   // DOM basemap + one GL overlay — two WebGL contexts (tiles+lines) regress drop% until shared runtime.
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
@@ -3876,7 +4198,7 @@ async function geojsonOrihon(points) {
 
   const pan = await stressOrihonCamera(map);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   const batch = layer.getLayers()[0];
   const backend =
     batch && typeof batch === "object" && "renderer" in batch ? String(batch.renderer) : layer.rendererMode;
@@ -3898,15 +4220,15 @@ async function geojsonLeaflet(points) {
   }
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     preferCanvas: true,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
@@ -3922,7 +4244,7 @@ async function geojsonLeaflet(points) {
 
   const pan = await stressCamera((lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       dataLayer.clearLayers();
@@ -3942,21 +4264,23 @@ async function geojsonOpenLayers(points) {
   }
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const source = new ol.source.Vector({ wrapX: false });
   map.addLayer(
@@ -3969,8 +4293,6 @@ async function geojsonOpenLayers(points) {
       updateWhileInteracting: true
     })
   );
-
-  const loadStart = performance.now();
   const fc = createLineFeatureCollection(points);
   const format = new ol.format.GeoJSON();
   source.addFeatures(
@@ -3988,7 +4310,7 @@ async function geojsonOpenLayers(points) {
     view.setZoom(zoom);
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       source.clear(true);
@@ -4003,27 +4325,33 @@ async function geojsonOpenLayers(points) {
 async function geojsonMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const compact = points.length > NATIVE_GEOJSON_LINE_MAX
-    ? createCompactLineGeoJSONUrl(points)
+  const compact = points.length > MAPLIBRE_COMPACT_GEOJSON_MIN
+    ? await createCompactLineGeoJSONUrl(points)
     : null;
   const fc = compact ? null : createLineFeatureCollection(points);
   try {
-    map.addSource("lines", { type: "geojson", data: compact?.url ?? fc });
+    // On the compact path the source also gets the bounds MapLibre documents for large
+    // GeoJSON. With defaults, geojson-vt indexes four million vertices down to zoom 18 and
+    // the tab dies before the first frame — three times out of three. The camera here
+    // never goes past zoom 6, so a pyramid to 10 leaves four levels of headroom; the tile
+    // buffer only guards seams at zooms the scene never reaches. Geometry is not
+    // simplified: tolerance stays at its default, so what is drawn is unchanged.
+    map.addSource("lines", compact
+      ? { type: "geojson", data: compact.url, maxzoom: 10, buffer: 0 }
+      : { type: "geojson", data: fc });
     map.addLayer({
       id: "lines",
       type: "line",
@@ -4039,9 +4367,9 @@ async function geojsonMapLibre(points) {
   }
   const loadMs = performance.now() - loadStart;
 
-  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }));
+  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       try {
@@ -4068,13 +4396,13 @@ async function geojsonMapLibre(points) {
 async function markersOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const layer = objectManager({ points: points.map(toOrihonPosition),
+  const layer = objectManager({ points: await prepareValues(points,toOrihonPosition),
     renderer: "svg",
     htmlButtonLimit: MARKER_DOM_CAP,
     viewportCull: true,
@@ -4095,7 +4423,7 @@ async function markersOrihon(points) {
 
   const pan = await stressOrihonCamera(map);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       layer.remove();
@@ -4108,18 +4436,19 @@ async function markersOrihon(points) {
 async function markersLeaflet(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     fadeAnimation: false,
     zoomAnimation: false,
     markerZoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const icon = L.divIcon({
     className: "bench-dot",
@@ -4127,7 +4456,6 @@ async function markersLeaflet(points) {
     iconSize: [8, 8],
     iconAnchor: [4, 4]
   });
-  const loadStart = performance.now();
   const group = L.layerGroup();
   for (let i = 0; i < points.length; i++) {
     L.marker(points[i], { icon, interactive: false, keyboard: false }).addTo(group);
@@ -4138,7 +4466,7 @@ async function markersLeaflet(points) {
 
   const pan = await stressCamera((lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "Leaflet (Marker)", initMs, loadMs, ...pan, heap };
 }
@@ -4146,21 +4474,23 @@ async function markersLeaflet(points) {
 async function markersOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const source = new ol.source.Vector({ wrapX: false });
   map.addLayer(
@@ -4176,10 +4506,8 @@ async function markersOpenLayers(points) {
       updateWhileInteracting: true
     })
   );
-
-  const loadStart = performance.now();
   source.addFeatures(
-    points.map(([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) }))
+    await prepareValues(points,([lat, lng]) => new ol.Feature({ geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])) }))
   );
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
@@ -4190,7 +4518,7 @@ async function markersOpenLayers(points) {
     view.setZoom(zoom);
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -4203,23 +4531,21 @@ async function markersOpenLayers(points) {
 async function markersMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   // HTML markers stay capped — full DOM at 5k is already heavy; rest use GL circles.
   const DOM_CAP = Math.min(points.length, MARKER_DOM_CAP);
-  const loadStart = performance.now();
   const htmlMarkers = [];
   for (let i = 0; i < DOM_CAP; i++) {
     const el = document.createElement("div");
@@ -4243,9 +4569,9 @@ async function markersMapLibre(points) {
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
-  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }));
+  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       for (const m of htmlMarkers) m.remove();
@@ -4260,12 +4586,13 @@ async function markersMapLibre(points) {
 async function filterOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const manager = objectManager({
+  const manager = ownManager(objectManager({
     clusterize: true,
     clusterRadiusPixels: 50,
     clusterMinPoints: 2,
@@ -4276,9 +4603,7 @@ async function filterOrihon(points) {
     styleByCategory: false,
     visualization: "clusters",
     marker: { interactive: false }
-  });
-
-  const loadStart = performance.now();
+  }));
   await manager.addAsync(toOrihonObjects(makeObjects(points)), {
     chunkSize: 10_000,
     yieldMode: "task",
@@ -4297,7 +4622,7 @@ async function filterOrihon(points) {
     }
   );
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       manager.destroy();
@@ -4320,20 +4645,21 @@ async function filterLeaflet(points) {
   }
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     preferCanvas: true,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const all = points.map((latlng, index) => {
+  const all = await prepareValues(points,(latlng, index) => {
     const m = L.circleMarker(latlng, {
       radius: 4,
       stroke: false,
@@ -4349,29 +4675,26 @@ async function filterLeaflet(points) {
     chunkedLoading: true,
     maxClusterRadius: 50
   });
-
-  const loadStart = performance.now();
-  cluster.addLayers(all);
-  map.addLayer(cluster);
+  await addClusterChunks(map, cluster, all);
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressFilterCamera(
     (lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }),
-    (activeOnly) => {
+    async (activeOnly) => {
       cluster.clearLayers();
-      cluster.addLayers(activeOnly ? all.filter((m) => m._benchActive) : all);
+      await addClusterChunks(map, cluster, activeOnly ? all.filter((m) => m._benchActive) : all);
     }
   );
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return {
     name: "Leaflet.markercluster filter",
     initMs,
     loadMs,
     ...pan,
-    markers: cluster.getLayers().length,
+    markers: NaN, // No equivalent public visible-cluster count.
     heap
   };
 }
@@ -4379,23 +4702,25 @@ async function filterLeaflet(points) {
 async function filterOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const features = points.map(([lat, lng], index) => {
+  const features = await prepareValues(points,([lat, lng], index) => {
     const feature = new ol.Feature({
       geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])),
       active: index % 3 !== 0
@@ -4425,8 +4750,6 @@ async function filterOpenLayers(points) {
       }
     })
   );
-
-  const loadStart = performance.now();
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
@@ -4442,7 +4765,7 @@ async function filterOpenLayers(points) {
     }
   );
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -4462,27 +4785,24 @@ async function filterOpenLayers(points) {
 async function filterMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const features = points.map(([lat, lng], id) => ({
+  const features = await prepareValues(points,([lat, lng], id) => ({
     type: "Feature",
     properties: { id, active: id % 3 !== 0 ? 1 : 0 },
     geometry: { type: "Point", coordinates: [lng, lat] }
   }));
-
-  const loadStart = performance.now();
   map.addSource("flt", {
     type: "geojson",
     data: { type: "FeatureCollection", features },
@@ -4518,12 +4838,13 @@ async function filterMapLibre(points) {
     filter: ["!", ["has", "point_count"]],
     paint: { "circle-color": "#2dd4bf", "circle-radius": 4 }
   });
+  await waitForMapLibreSource(map, 'flt');
   await waitFrames(4);
   const loadMs = performance.now() - loadStart;
 
   const pan = await stressFilterCamera(
-    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }),
-    (activeOnly) => {
+    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }),
+    async (activeOnly) => {
       map.setFilter("unclustered", activeOnly
         ? ["all", ["!", ["has", "point_count"]], ["==", ["get", "active"], 1]]
         : ["!", ["has", "point_count"]]);
@@ -4532,13 +4853,14 @@ async function filterMapLibre(points) {
         type: "FeatureCollection",
         features: activeOnly ? features.filter((f) => f.properties.active === 1) : features
       });
+      await waitForMapLibreSource(map, 'flt');
     }
   );
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   let markers = 0;
   try {
-    markers = map.querySourceFeatures("flt").length;
+    markers = map.queryRenderedFeatures({ layers: ["clusters", "unclustered"] }).length;
   } catch {
     markers = NaN;
   }
@@ -4558,14 +4880,14 @@ async function filterMapLibre(points) {
 async function basemapOrihon(_points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false });
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
   const layer = tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(4);
   const initMs = performance.now() - initStart;
   const loadMs = 0;
   const pan = await stressOrihonCamera(map);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.destroy() };
   return { name: `Orihon (webgl tiles · ${layer.renderer})`, initMs, loadMs, ...pan, heap };
 }
@@ -4573,21 +4895,21 @@ async function basemapOrihon(_points) {
 async function basemapLeaflet(_points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: ZOOM,
     zoomControl: false,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(4);
   const initMs = performance.now() - initStart;
   const loadMs = 0;
   const pan = await stressCamera((lat, lng, zoom) => map.setView([lat, lng], zoom, { animate: false }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "Leaflet (tiles)", initMs, loadMs, ...pan, heap };
 }
@@ -4595,19 +4917,20 @@ async function basemapLeaflet(_points) {
 async function basemapOpenLayers(_points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: ZOOM
     }),
     controls: []
-  });
+  }));
   await waitFrames(4);
   const initMs = performance.now() - initStart;
   const loadMs = 0;
@@ -4617,7 +4940,7 @@ async function basemapOpenLayers(_points) {
     view.setZoom(zoom);
   });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -4630,24 +4953,22 @@ async function basemapOpenLayers(_points) {
 async function basemapMapLibre(_points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   await waitFrames(2);
   const initMs = performance.now() - initStart;
   const loadMs = 0;
-  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }));
+  const pan = await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }));
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "MapLibre (tiles)", initMs, loadMs, ...pan, heap };
 }
@@ -4657,7 +4978,7 @@ async function basemapMapLibre(_points) {
 async function tileScrollOrihon(_points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: 5.25, zoomSnap: 0, controls: false });
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: 5.25, zoomSnap: 0, controls: false }));
   const tracker = createTileRequestTracker();
   const layer = tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19 });
   layer.on("tileloadstart", (event) => tracker.record(event.url || `${event.z}:${event.x}:${event.y}`));
@@ -4679,7 +5000,7 @@ async function tileScrollOrihon(_points) {
     () => tracker.snapshot(),
     () => layer.getStats().coveragePct
   );
-  const heap = readHeap();
+  const heap = await settledHeap();
   const stats = layer.getStats();
   active = { destroy: () => map.destroy() };
   return {
@@ -4698,7 +5019,7 @@ async function tileScrollLeaflet(_points) {
   let seen = 0;
   const tracker = createTileRequestTracker();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: 5.25,
     zoomSnap: 0,
@@ -4706,7 +5027,7 @@ async function tileScrollLeaflet(_points) {
     zoomControl: false,
     fadeAnimation: false,
     zoomAnimation: false
-  });
+  }));
   const layer = L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19, keepBuffer: 2 });
   layer.on("tileloadstart", (event) => {
     if (event.tile) pendingTiles.add(event.tile);
@@ -4727,7 +5048,7 @@ async function tileScrollLeaflet(_points) {
     ready,
     () => tracker.snapshot()
   );
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "Leaflet (tile scroll)", initMs, loadMs, ...pan, heap };
 }
@@ -4752,12 +5073,13 @@ async function tileScrollOpenLayers(_points) {
     zoom: 5.25,
     constrainResolution: false
   });
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
-    layers: [new ol.layer.Tile({ source, preload: 1 })],
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
+    layers: [...(withBasemap() ? [new ol.layer.Tile({ source, preload: 1 })] : [])],
     view,
     controls: []
-  });
+  }));
   await waitFrames(1);
   const initMs = performance.now() - initStart;
   const ready = () => seen > 0 && pending === 0;
@@ -4766,7 +5088,7 @@ async function tileScrollOpenLayers(_points) {
     view.setCenter(ol.proj.fromLonLat([lng, lat]));
     view.setZoom(zoom);
   }, ready, () => tracker.snapshot());
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -4780,14 +5102,15 @@ async function tileScrollMapLibre(_points) {
   const host = blankHost();
   const tracker = createTileRequestTracker();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: 5.25,
+    zoom: (5.25) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
+  }));
   map.on("sourcedataloading", (event) => {
     const coord = event.coord?.canonical || event.coord;
     if (coord && Number.isFinite(coord.z) && Number.isFinite(coord.x) && Number.isFinite(coord.y)) {
@@ -4799,11 +5122,11 @@ async function tileScrollMapLibre(_points) {
   const ready = () => map.loaded() && map.areTilesLoaded();
   const loadMs = await waitForTileSettle(ready);
   const pan = await stressTileScroll(
-    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom }),
+    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 }),
     ready,
     () => tracker.snapshot()
   );
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: "MapLibre (tile scroll)", initMs, loadMs, ...pan, heap };
 }
@@ -4813,13 +5136,13 @@ async function tileScrollMapLibre(_points) {
 async function popupOrihon(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: 11, controls: false });
-  tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  const map = ownMap(createMap(host, { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: 11, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const layers = points.map(([lat, lng], index) => {
+  const layers = await prepareValues(points,([lat, lng], index) => {
     const series = benchChartSeries(index + 1);
     return marker({ lat, lng }, { title: `P${index}`, keyboard: false })
       .bindPopup(
@@ -4848,7 +5171,7 @@ async function popupOrihon(points) {
   );
   map.setView({ lat: CENTER[0], lng: CENTER[1] }, 11);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       for (const layer of layers) {
@@ -4868,17 +5191,18 @@ async function popupOrihon(points) {
 async function popupLeaflet(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = L.map(host, {
+  const map = ownMap(L.map(host, {
     center: CENTER,
     zoom: 11,
     zoomControl: false,
     fadeAnimation: false,
     zoomAnimation: false
-  });
-  L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+  }));
+  if (withBasemap()) L.tileLayer(OSM, { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
   map.invalidateSize();
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
   const icon = L.divIcon({
     className: "bench-dot",
@@ -4886,8 +5210,7 @@ async function popupLeaflet(points) {
     iconSize: [8, 8],
     iconAnchor: [4, 4]
   });
-  const loadStart = performance.now();
-  const layers = points.map(([lat, lng], index) => {
+  const layers = await prepareValues(points,([lat, lng], index) => {
     const series = benchChartSeries(index + 1);
     return L.marker([lat, lng], { icon, keyboard: false })
       .bindPopup(
@@ -4915,7 +5238,7 @@ async function popupLeaflet(points) {
   );
   map.setView(CENTER, 11, { animate: false });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = { destroy: () => map.remove() };
   return { name: `Leaflet (DOM chart ×${layers.length} · ${opens.hops} hops)`, initMs, loadMs, ...opens, heap };
 }
@@ -4923,27 +5246,28 @@ async function popupLeaflet(points) {
 async function popupOpenLayers(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new ol.Map({
+  const map = ownMap(new ol.Map({
     target: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     layers: [
-      new ol.layer.Tile({
+      ...(withBasemap() ? [new ol.layer.Tile({
         source: new ol.source.XYZ({ url: OSM, attributions: "© OpenStreetMap" })
-      })
+      })] : [])
     ],
     view: new ol.View({
       center: ol.proj.fromLonLat([CENTER[1], CENTER[0]]),
       zoom: 11
     }),
     controls: []
-  });
+  }));
   await waitFrames(3);
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
   const source = new ol.source.Vector({ wrapX: false });
-  const seriesByIndex = points.map((_, index) => benchChartSeries(index + 1));
+  const seriesByIndex = await prepareValues(points,(_, index) => benchChartSeries(index + 1));
   source.addFeatures(
-    points.map(([lat, lng], index) => {
+    await prepareValues(points,([lat, lng], index) => {
       const feature = new ol.Feature({
         geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat]))
       });
@@ -4992,7 +5316,7 @@ async function popupOpenLayers(points) {
   view.setCenter(ol.proj.fromLonLat([CENTER[1], CENTER[0]]));
   view.setZoom(11);
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       map.setTarget(null);
@@ -5005,24 +5329,22 @@ async function popupOpenLayers(points) {
 async function popupMapLibre(points) {
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: 11,
+    zoom: (11) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   map.resize();
   const initMs = performance.now() - initStart;
 
   const loadStart = performance.now();
-  const seriesByIndex = points.map((_, index) => benchChartSeries(index + 1));
-  const markers = points.map(([lat, lng]) => {
+  const seriesByIndex = await prepareValues(points,(_, index) => benchChartSeries(index + 1));
+  const markers = await prepareValues(points,([lat, lng]) => {
     const el = document.createElement("div");
     el.className = "bench-ml-marker";
     return new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
@@ -5048,11 +5370,11 @@ async function popupMapLibre(points) {
         .setDOMContent(content)
         .addTo(map);
     },
-    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom })
+    (lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 })
   );
-  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: 11 });
+  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: (11) - 1 });
   await waitFrames(2);
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       popup?.remove();
@@ -5069,19 +5391,20 @@ async function richOrihon(points) {
   const clusterize = richClusterEnabled();
   const host = blankHost();
   const initStart = performance.now();
-  const map = createMap(host, {
+  const map = ownMap(createMap(host, {
     center: { lat: CENTER[0], lng: CENTER[1] },
     zoom: ZOOM,
     minZoom: 2,
     maxZoom: 14,
     controls: false
-  });
-  tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19, maxDpr: 1 }).addTo(map);
+  }));
+  if (withBasemap()) tileLayer(OSM, { renderer: "webgl", attribution: "© OpenStreetMap", maxZoom: 19, maxDpr: 1 }).addTo(map);
   await waitFrames(3);
   const initMs = performance.now() - initStart;
+  const loadStart = performance.now();
 
-  const objects = makeRichObjects(points);
-  const manager = objectManager({
+  const objects = await makeRichObjects(points);
+  const manager = ownManager(objectManager({
     clusterize,
     clusterRadiusPixels: 56,
     clusterMinPoints: 2,
@@ -5094,9 +5417,7 @@ async function richOrihon(points) {
     sceneFeatures: false,
     visualization: clusterize ? "clusters" : "objects",
     marker: { className: "oh-rich-marker", interactive: true }
-  });
-
-  const loadStart = performance.now();
+  }));
   await manager.addAsync(toOrihonObjects(objects), {
     chunkSize: 10_000,
     yieldMode: "task",
@@ -5134,7 +5455,7 @@ async function richOrihon(points) {
   const pan = await stressRich(createOrihonRichDriver(manager, map), objects);
   await waitFrames(2);
   const stats = manager.getStats();
-  const heap = readHeap();
+  const heap = await settledHeap();
   active = {
     destroy() {
       manager.destroy();
@@ -5158,22 +5479,20 @@ async function richMapLibre(points) {
   const useGeoJsonCluster = wantCluster && points.length <= 50_000;
   const host = blankHost();
   const initStart = performance.now();
-  const map = new maplibregl.Map({
+  const map = ownMap(new maplibregl.Map({
     container: host,
+    pixelRatio: Math.min(devicePixelRatio, 1.5),
     style: mapLibreRasterStyle(),
     center: [CENTER[1], CENTER[0]],
-    zoom: ZOOM,
+    zoom: (ZOOM) - 1,
     attributionControl: false,
     fadeDuration: 0
-  });
-  await new Promise((resolve, reject) => {
-    map.once("load", resolve);
-    map.once("error", (event) => reject(event.error || new Error("MapLibre load failed")));
-  });
+  }));
+  await waitForMapLibreLoad(map);
   const initMs = performance.now() - initStart;
-
-  const objects = makeRichObjects(points);
   const loadStart = performance.now();
+
+  const objects = await makeRichObjects(points);
 
   if (useGeoJsonCluster) {
     const fc = makeRichFeatureCollection(objects);
@@ -5243,7 +5562,7 @@ async function richMapLibre(points) {
         }
       },
       setView(lat, lng, zoom) {
-        map.jumpTo({ center: [lng, lat], zoom });
+        map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 });
       },
       applyLive(updates) {
         for (const object of updates) {
@@ -5309,7 +5628,7 @@ async function richMapLibre(points) {
 
     const pan = await stressRich(driver, objects);
     await waitFrames(2);
-    const heap = readHeap();
+    const heap = await settledHeap();
     active = { destroy: () => map.remove() };
     return {
       name: "MapLibre GeoJSON rich+cluster",
@@ -5344,7 +5663,7 @@ async function richMapLibre(points) {
       }
     }
   };
-  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: Math.min(ZOOM, 4.5) });
+  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: (Math.min(ZOOM, 4.5)) - 1 });
   await waitFrames(6);
   const loadMs = performance.now() - loadStart;
   // Dwell at home BEFORE stress so 1M is actually visible (not only during wild pans).
@@ -5357,11 +5676,11 @@ async function richMapLibre(points) {
     throw error;
   }
   // Park on a readable home view and leave the map mounted (final clearStage skipped).
-  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: Math.min(ZOOM, 4.5) });
+  map.jumpTo({ center: [CENTER[1], CENTER[0]], zoom: (Math.min(ZOOM, 4.5)) - 1 });
   rich.setFilter("all");
   await waitFrames(10);
   await sleep(points.length >= 250_000 ? 1200 : 500);
-  const heap = readHeap();
+  const heap = await settledHeap();
   return {
     name: `MapLibre GPU rich${wantCluster ? " (cluster skipped >50k)" : ""}`,
     initMs,
@@ -5378,7 +5697,45 @@ const richUnsupported = (label) =>
     "No built-in ObjectManager-equivalent stack in this bench (use Orihon / MapLibre for Rich)."
   );
 
+async function nativePointsOrihon(points) {
+  const start = performance.now();
+  const map = ownMap(createMap(blankHost(), { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: ZOOM, controls: false }));
+  if (withBasemap()) tileLayer(OSM, { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+  await waitFrames(3);
+  const initMs = performance.now() - start;
+  const loadStart = performance.now();
+  const manager = ownManager(objectManager({ clusterize: false, clusterRenderer: 'webgl', sceneFeatures: false, styleByCategory: false,
+    style: () => ({ size: 4, fill: '#2dd4bf', fillOpacity: 0.78 }) }));
+  active = { destroy() { manager.destroy(); map.destroy(); } };
+  const objects = await prepareValues(points, ([lat, lng], id) => ({ id, coordinates: { lat, lng }, properties: {} }));
+  await manager.addAsync(objects, { chunkSize: 2000, yieldMode: 'task', render: false });
+  manager.addTo(map);
+  await waitFrames(4);
+  const loadMs = performance.now() - loadStart;
+  return { name: 'Orihon ObjectManager (native objects)', initMs, loadMs, ...await stressOrihonCamera(map) };
+}
+
+async function nativePointsMapLibre(points) {
+  const start = performance.now();
+  const map = ownMap(new maplibregl.Map({ container: blankHost(), style: mapLibreRasterStyle(),
+    center: [CENTER[1], CENTER[0]], zoom: (ZOOM) - 1, pixelRatio: Math.min(devicePixelRatio, 1.5), attributionControl: false }));
+  await waitForMapLibreLoad(map);
+  const initMs = performance.now() - start;
+  const loadStart = performance.now();
+  const features = await prepareValues(points, ([lat, lng], id) => ({ type: 'Feature', id, properties: {}, geometry: { type: 'Point', coordinates: [lng, lat] } }));
+  map.addSource('native-points', { type: 'geojson', data: { type: 'FeatureCollection', features } });
+  map.addLayer({ id: 'native-points', type: 'circle', source: 'native-points', paint: { 'circle-radius': 2, 'circle-color': '#2dd4bf', 'circle-opacity': 0.78 } });
+  await waitForMapLibreSource(map, 'native-points');
+  await waitForEvent(map, 'idle', { signal: runController?.signal, start: () => map.triggerRepaint() });
+  const loadMs = performance.now() - loadStart;
+  return { name: 'MapLibre native GeoJSON circles', initMs, loadMs,
+    ...await stressCamera((lat, lng, zoom) => map.jumpTo({ center: [lng, lat], zoom: (zoom) - 1 })) };
+}
+
 const ENGINE_RUNNERS = {
+  'native-pick': { orihon: pickOrihon, leaflet: pickLeaflet, ol: pickOpenLayers, maplibre: pickMapLibre },
+  'native-points': { orihon: nativePointsOrihon, leaflet: pointsLeaflet, ol: pointsOpenLayers, maplibre: nativePointsMapLibre },
+  'live-sparse': { orihon: liveOrihon, leaflet: liveLeaflet, ol: liveOpenLayers, maplibre: liveMapLibre },
   points: {
     orihon: pointsOrihon,
     leaflet: pointsLeaflet,
@@ -5467,7 +5824,14 @@ const ENGINE_RUNNERS = {
 
 function syncScenarioUi() {
   const scenario = els.scenario.value;
-  els.methodNote.textContent = SCENARIO_NOTES[scenario] || "";
+  const fixedData = ['heatmap', 'isolines', 'heatboth', 'popup', 'basemap', 'tile-scroll'].includes(scenario);
+  document.getElementById('distribution').disabled = fixedData;
+  document.getElementById('seed').disabled = fixedData;
+  els.methodNote.textContent = (scenario === 'native-points'
+    ? 'Native objects/features: ObjectManager, Leaflet circleMarker, OpenLayers WebGLPoints and MapLibre GeoJSON circles. No custom GL adapter in this test.'
+    : scenario === 'live-sparse' ? 'Move every 100th point (1%). Public partial updates where available; MapLibre raw adapter resubmits its buffer. Same semantic changes, API costs included.'
+    : scenario === 'native-pick' ? 'Real public queries at visible feature positions: Orihon map.query, OpenLayers forEachFeatureAtPixel, MapLibre queryRenderedFeatures. These have different hit semantics; hit counts are included. Leaflet has no equivalent public query and reports n/a.'
+    : SCENARIO_NOTES[scenario] || '') + ' RAF is main-thread cadence, not proof of complete rendered frames. Heap is tab JS only; excludes GPU and may exclude workers. Long tasks cover setup, loading and interaction. No overall winner is computed.';
   if (els.countLabel) {
     els.countLabel.textContent =
       scenario === "basemap" || scenario === "tile-scroll"
@@ -5482,7 +5846,7 @@ function syncScenarioUi() {
   if (els.heatEvaluationWrap) {
     els.heatEvaluationWrap.hidden = scenario !== "heatmap" && scenario !== "isolines" && scenario !== "heatboth";
   }
-  const cols = COLUMNS[scenario] || COLUMNS.points;
+  const cols = [...(COLUMNS[scenario === 'native-pick' ? 'pick' : scenario] || COLUMNS.points), 'Wall', 'Long tasks', 'Longest task', 'Status'];
   els.resultsHead.innerHTML = `<tr>${cols.map((col) => `<th>${col}</th>`).join("")}</tr>`;
   if (!els.results.querySelector("tr:not(.empty)")) {
     els.results.innerHTML = `<tr class="empty"><td colspan="${cols.length}">No runs yet</td></tr>`;
@@ -5490,6 +5854,9 @@ function syncScenarioUi() {
 }
 
 function cellFor(scenario, row, key) {
+  if (key === 'status') return escapeAttr(row.error || (row.unsupported ? row.unsupportedReason : row.running ? 'Running' : row.hidden ? 'Invalid: tab hidden' : 'Complete'));
+  if (key === 'wallMs' || key === 'longestTaskMs') return formatMs(row[key]);
+  if (key === 'longTasks') return Number.isFinite(row[key]) ? String(row[key]) : 'n/a';
   if (row.unsupported && key !== "name") {
     return key === "markers" && (scenario === "isolines" || scenario === "heatboth" || scenario === "rich") ? "n/a" : "n/a";
   }
@@ -5556,7 +5923,7 @@ function rowKeys(scenario) {
   if (scenario === "heatmap") {
     return ["name", "initMs", "loadMs", "fieldMs", "contoursMs", "renderMs", "fps", "p95Ms", "maxMs", "dropPct", "heap"];
   }
-  if (scenario === "pick" || scenario === "popup") {
+  if (scenario === "pick" || scenario === "native-pick" || scenario === "popup") {
     return ["name", "initMs", "loadMs", "pickP50", "pickP95", "heap"];
   }
   if (scenario === "tile-scroll") {
@@ -5566,27 +5933,17 @@ function rowKeys(scenario) {
 }
 
 function renderResults(scenario, rows) {
-  const keys = rowKeys(scenario);
+  const keys = [...rowKeys(scenario), 'wallMs', 'longTasks', 'longestTaskMs', 'status'];
   if (!rows.length) {
     els.results.innerHTML = `<tr class="empty"><td colspan="${keys.length}">No runs yet</td></tr>`;
     return;
   }
 
-  const bestLoad = Math.min(...rows.map((row) => row.loadMs).filter(Number.isFinite));
-  const bestP95 = Math.min(...rows.map((row) => row.p95Ms ?? row.pickP95).filter(Number.isFinite));
-  const bestHeap = Math.min(...rows.map((row) => row.heap).filter(Number.isFinite));
-
   els.results.replaceChildren(
     ...rows.map((row) => {
       const tr = document.createElement("tr");
       if (row.running) tr.classList.add("is-running");
-      const score = row.p95Ms ?? row.pickP95;
-      const isBest =
-        !row.running &&
-        ((Number.isFinite(row.loadMs) && row.loadMs === bestLoad) ||
-          (Number.isFinite(score) && score === bestP95) ||
-          (Number.isFinite(row.heap) && row.heap === bestHeap));
-      if (isBest) tr.classList.add("is-best");
+      // Different render paths/capabilities and tab-wide heaps do not imply an overall winner.
       tr.innerHTML = keys.map((key) => `<td>${cellFor(scenario, row, key)}</td>`).join("");
       return tr;
     })
@@ -5595,24 +5952,56 @@ function renderResults(scenario, rows) {
 
 function refreshBundleSizes() {
   const patterns = [
-    { label: "Orihon bundle", match: /(?:\/npm\/orihon@[^/]+\/dist\/|\borihon)(?:\.esm|\.global|\.css|\/index\.)/ },
-    { label: "Leaflet", match: /leaflet@[^/]+\/dist\/leaflet\.js/ },
+    { label: "Orihon JS + CSS", match: /\/dist\/orihon(?:[.-][^/?]*)?\.(?:js|css)(?:\?|$)/ },
+    { label: "Leaflet JS + CSS", match: /leaflet@[^/]+\/dist\/leaflet\.(?:js|css)/ },
     { label: "Leaflet.markercluster", match: /leaflet\.markercluster/ },
     { label: "Leaflet.heat", match: /leaflet\.heat|leaflet-heat/ },
-    { label: "OpenLayers", match: /\/ol(@|\/).*\/ol\.js|\/dist\/ol\.js/ },
+    { label: "OpenLayers JS + CSS", match: /\/ol@[^/]+\/(?:dist\/)?ol\.(?:js|css)/ },
     { label: "MapLibre GL", match: /maplibre-gl/ }
   ];
   const resources = performance.getEntriesByType("resource");
+  libraryMeasurements = [];
   els.sizeList.replaceChildren(
     ...patterns.map((pattern) => {
-      const entry = resources.find((item) => pattern.match.test(item.name));
+      const entries = resources.filter(item => pattern.match.test(item.name) && !item.name.includes('bench-body-measure='));
+      const summary = summarizeResources(entries);
+      const urls = [...new Set(entries.map(entry => entry.name))];
+      const decoded = urls.length && urls.every(url => decodedBodies.has(url))
+        ? urls.reduce((sum, url) => sum + decodedBodies.get(url), 0) : null;
+      libraryMeasurements.push({ label: pattern.label, ...summary, urls, fallbackDecodedBytes: decoded });
       const li = document.createElement("li");
-      const size = entry?.encodedBodySize || entry?.transferSize || NaN;
-      li.innerHTML = `<span>${pattern.label}</span><strong>${formatBytes(size)}</strong>`;
+      const title = document.createElement('span'); title.textContent = pattern.label;
+      const value = document.createElement('strong');
+      value.textContent = summary.complete
+        ? `${formatBytes(summary.transferBytes)} transferred · ${formatBytes(summary.encodedBytes)} body`
+        : `${formatBytes(summary.transferBytes)} known transfer · ${summary.knownRequests}/${summary.requests} timings visible${decoded !== null ? ` · ${formatBytes(decoded)} decoded (separate fetch)` : ' · remaining sizes restricted / not loaded'}`;
+      value.title = urls.join('\n'); li.append(title, value);
       return li;
     })
   );
 }
+
+document.getElementById('measure-bodies').addEventListener('click', async event => {
+  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  try {
+    for (const group of libraryMeasurements) {
+      if (group.complete) continue;
+      for (const url of group.urls) {
+        if (decodedBodies.has(url)) continue;
+        try {
+          const measured = new URL(url); measured.searchParams.set('bench-body-measure', '1');
+          const response = await fetch(measured, { mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(30000) });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const reader = response.body.getReader(); let bytes = 0;
+          while (true) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.byteLength; }
+          decodedBodies.set(url, bytes);
+        } catch (error) { button.title = `Some servers restrict measurement: ${error.message}`; }
+      }
+    }
+    refreshBundleSizes();
+  } finally { button.disabled = false; }
+});
 
 function applyPreset(name) {
   const preset = PRESETS[name];
@@ -5623,7 +6012,7 @@ function applyPreset(name) {
   if (typeof preset.cluster === "boolean" && els.richCluster) {
     els.richCluster.checked = preset.cluster;
   }
-  if (name === "stress1m" || name === "rich1m" || name === "rich1mnc") {
+  if (name === "rich1m" || name === "rich1mnc") {
     if (els.checks.leaflet) els.checks.leaflet.checked = false;
     if (els.checks.ol) els.checks.ol.checked = false;
     if (els.checks.orihon) els.checks.orihon.checked = true;
@@ -5642,10 +6031,30 @@ async function runOne(engineId, runner, points) {
   await clearStage({ settleMs: 200 });
   await reclaimHeap();
   const heapBaseline = readHeap();
+  projectionPixels = NaN;
   // Runners treat the cached master as read-only. Per-frame update scenarios own
   // explicit scratch buffers; cloning 1M tuples here only polluted Heap with an
   // unreachable pre-run copy and could push the next engine into emergency GC.
-  const result = await runner(points);
+  checkRun();
+  let hidden = document.hidden;
+  const onVisibility = () => { hidden ||= document.hidden; };
+  document.addEventListener('visibilitychange', onVisibility);
+  const longTasks = [];
+  const observer = PerformanceObserver.supportedEntryTypes?.includes('longtask')
+    ? new PerformanceObserver(list => longTasks.push(...list.getEntries())) : null;
+  observer?.observe({ type: 'longtask' });
+  const started = performance.now();
+  let result;
+  try { result = await runner(points); }
+  finally {
+    if (observer) { longTasks.push(...observer.takeRecords()); observer.disconnect(); }
+    document.removeEventListener('visibilitychange', onVisibility);
+  }
+  result.wallMs = performance.now() - started;
+  result.pixelsPerLongitudeDegree = projectionPixels;
+  result.longTasks = observer ? longTasks.length : NaN;
+  result.longestTaskMs = observer ? Math.max(0, ...longTasks.map(entry => entry.duration)) : NaN;
+  result.hidden = hidden;
   // Absolute tab JS heap with this engine's map still live (after GC settled from the prior one).
   result.heap = readHeap();
   result.heapBaseline = heapBaseline;
@@ -5658,10 +6067,23 @@ async function runOne(engineId, runner, points) {
 async function runBenchmark() {
   if (busy) return;
   busy = true;
+  const runStarted = performance.now();
+  const elapsed = document.getElementById('elapsed');
+  const heartbeat = setInterval(() => { elapsed.textContent = `${((performance.now() - runStarted) / 1000).toFixed(0)} s elapsed — large native operations may take minutes`; }, 1000);
+  runController = new AbortController();
+  let currentRows = [];
+  const controls = [...document.querySelectorAll('header select, header input')];
+  controls.forEach(control => control.disabled = true);
+  document.getElementById('cancel').disabled = false;
+  document.getElementById('measure-bodies').disabled = true;
   els.run.disabled = true;
   els.exportBtn.disabled = true;
+  try {
 
   const scenario = els.scenario.value;
+  // Pull in only the entry this scenario uses, so the size panel reports the library
+  // slice it actually exercised rather than everything the page might ever need.
+  await ensureOrihonFor(scenario);
   const count = Number(els.count.value);
   const runCount = Number(els.runs.value) || 1;
   const runners = ENGINE_RUNNERS[scenario];
@@ -5680,7 +6102,7 @@ async function runBenchmark() {
   if (scenario === "points" && count >= 1000000) {
     setHud(
       "Stress 1M",
-      "Bare WebGL points — no clusters. Prefer Orihon + MapLibre only; Leaflet/OL canvas at 1M can freeze the tab."
+      "Full million-point dataset. Preparation yields to the browser; native library work may take minutes. Cancel remains available between native operations."
     );
     await sleep(700);
   }
@@ -5695,7 +6117,7 @@ async function runBenchmark() {
     setHud(
       "GeoJSON safety",
       count > NATIVE_GEOJSON_LINE_MAX
-        ? `Orihon packed and MapLibre compact GeoJSON will run; Leaflet/OpenLayers per-feature rows are skipped above ${NATIVE_GEOJSON_LINE_MAX.toLocaleString("en-US")} to prevent tab OOM.`
+        ? `Leaflet/OpenLayers per-feature rows are skipped above ${NATIVE_GEOJSON_LINE_MAX.toLocaleString("en-US")} LineStrings.`
         : "GeoJSON lines above 25k can hitch — prefer the 5k preset."
     );
     await sleep(700);
@@ -5740,14 +6162,23 @@ async function runBenchmark() {
       : scenario === "popup"
         ? createPopupPoints(pointCount)
         : scenario === "heatmap" || scenario === "isolines" || scenario === "heatboth"
-          ? createHeatPoints(pointCount)
-          : createPoints(pointCount);
+          ? await createHeatPoints(pointCount)
+          : await createPoints(pointCount);
   const rows = [];
+  currentRows = rows;
+  lastExport = { when: new Date().toISOString(), scenario, count: pointCount, runs: runCount, results: rows, samples: {} };
   renderResults(scenario, rows);
 
-  for (const engineId of selected) {
+  const attemptRows = new Map(selected.map(id => [id, []]));
+  lastExport.samples = Object.fromEntries(attemptRows);
+  const executionOrder = [];
+  for (let repetition = 0; repetition < runCount; repetition++) {
+  for (const engineId of rotatedOrder(selected, repetition)) {
+    checkRun();
+    executionOrder.push(engineId);
     const runner = runners[engineId];
-    const placeholder = {
+    const placeholder = rows.find(row => row.engineId === engineId) || {
+      engineId,
       name: engineId,
       initMs: null,
       loadMs: null,
@@ -5762,12 +6193,15 @@ async function runBenchmark() {
       heap: NaN,
       running: true
     };
-    rows.push(placeholder);
+    if (!rows.includes(placeholder)) rows.push(placeholder);
+    if (placeholder.unsupported || placeholder.error) continue;
+    placeholder.running = true;
     renderResults(scenario, rows);
 
-    const attempts = [];
+    const attempts = attemptRows.get(engineId);
     try {
-      for (let run = 1; run <= runCount; run++) {
+      {
+        const run = repetition + 1;
         setHud(
           engineId,
           scenario === "basemap" || scenario === "tile-scroll"
@@ -5781,7 +6215,6 @@ async function runBenchmark() {
           running: true
         });
         renderResults(scenario, rows);
-        if (result.unsupported) break;
         await sleep(120);
       }
       const finalRow = attempts[0]?.unsupported
@@ -5789,7 +6222,7 @@ async function runBenchmark() {
         : runCount > 1
           ? medianRow(attempts)
           : attempts[0];
-      if (runCount > 1 && !finalRow.unsupported) finalRow.name = `${attempts[0].name} · median×${runCount}`;
+      if (runCount > 1 && !finalRow.unsupported) finalRow.name = `${attempts[0].name} · median×${attempts.length}`;
       Object.assign(placeholder, finalRow, { running: false });
       setHud(
         finalRow.name,
@@ -5802,9 +6235,11 @@ async function runBenchmark() {
             : `load ${formatMs(finalRow.loadMs)} · ${formatFps(finalRow.fps)} FPS · p95 ${formatMs(finalRow.p95Ms)}`
       );
     } catch (error) {
+      if (runController.signal.aborted) throw error;
       Object.assign(placeholder, {
         running: false,
         name: `${engineId} ✕`,
+        error: error?.message || String(error),
         initMs: NaN,
         loadMs: NaN,
         fps: NaN,
@@ -5817,17 +6252,28 @@ async function runBenchmark() {
       });
       setHud(engineId, error?.message || String(error));
       console.error(engineId, error);
+      await clearStage();
     }
     renderResults(scenario, rows);
+  }
   }
 
   // Keep the last engine's map on stage so the cloud stays visible after the run.
   // The next Run still tears it down via runOne → clearStage.
+  refreshBundleSizes();
   lastExport = {
     when: new Date().toISOString(),
     scenario,
     count: pointCount,
     runs: runCount,
+    executionOrder,
+    samples: Object.fromEntries(attemptRows),
+    libraryMeasurements,
+    viewport: { width: els.stage.clientWidth, height: els.stage.clientHeight, devicePixelRatio },
+    cachePolicy: 'Shared page, libraries preloaded; repeats are warm. No forced cache purge.',
+    basemapIncluded: withBasemap(),
+    pointDistribution: document.getElementById('distribution').value,
+    seed: Number(document.getElementById('seed').value) >>> 0,
     heatProfile: scenario === "heatmap" || scenario === "isolines" || scenario === "heatboth"
       ? { ...HEAT_BENCH, gradient: HEAT_GRADIENT, mapLibreEffectiveRadius: HEAT_BENCH.radius + HEAT_BENCH.blur }
       : undefined,
@@ -5844,7 +6290,31 @@ async function runBenchmark() {
   busy = false;
   els.run.disabled = false;
   refreshBundleSizes();
+  } catch (error) {
+    const cancelled = runController?.signal.aborted;
+    runController = null;
+    await clearStage();
+    for (const row of currentRows) if (row.running) { row.running = false; row.error = cancelled ? 'Cancelled' : error?.message || String(error); }
+    renderResults(els.scenario.value, currentRows);
+    if (lastExport) { lastExport.incomplete = true; els.exportBtn.disabled = false; }
+    setHud(cancelled ? 'Cancelled' : 'Failed', error?.message || String(error));
+  } finally {
+    clearInterval(heartbeat);
+    elapsed.textContent = `${((performance.now() - runStarted) / 1000).toFixed(1)} s total`;
+    busy = false;
+    runController = null;
+    els.run.disabled = false;
+    document.getElementById('cancel').disabled = true;
+    document.getElementById('measure-bodies').disabled = false;
+    controls.forEach(control => control.disabled = false);
+    syncScenarioUi();
+  }
 }
+
+document.getElementById('cancel').addEventListener('click', () => {
+  runController?.abort(new DOMException('Cancelled by user', 'AbortError'));
+  setHud('Cancelling', 'Waiting for the current native operation to return…');
+});
 
 els.run.addEventListener("click", () => {
   void runBenchmark();
