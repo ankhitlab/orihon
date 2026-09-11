@@ -10,9 +10,26 @@ import { compileShader, linkProgram, parseCssColor, type RgbColor } from "../web
 import { ringContainsPoint, segmentDistance, type PathOptions } from "./vector.js";
 import { rejectStyleAliases } from "../style-contract.js";
 
-/** Retained per path so the batch can answer a click; the GPU buffer has no feature boundaries. */
+/**
+ * One ring as a run inside the batch's shared vertex buffer. Giving every ring its own
+ * typed array looked tidy and cost more than the vertices: a four-vertex Float64Array is
+ * mostly header, and a million lines meant two million of them.
+ */
+interface PackedRing {
+  /** Index of the first vertex in `_vtxBuf`; the buffer holds lat, lng pairs. */
+  start: number;
+  count: number;
+}
+
+/**
+ * Retained per path so the batch can answer a click; the GPU buffer has no feature boundaries.
+ *
+ * Only built for an interactive batch. A layer that opted out of interaction never hit-tests,
+ * and keeping a record anyway meant holding the caller's whole coordinate object graph — at a
+ * million four-vertex lines, six hundred megabytes beside a sixty-megabyte draw buffer.
+ */
 interface WebGLPathRecord {
-  rings: LatLngLike[][];
+  rings: PackedRing[];
   closed: boolean;
   filled: boolean;
   strokeWidth: number;
@@ -83,6 +100,9 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
   private ext: InstancedExt | null = null;
   /** Per-segment: ax, ay, bx, by (normalized mercator). */
   private _segBuf = new Float32Array(0);
+  /** Vertices of every interactive ring, lat then lng, for hit testing; empty when not interactive. */
+  private _vtxBuf = new Float64Array(0);
+  private _vtxCount = 0;
   private _records: WebGLPathRecord[] = [];
   private _interactionUnsub: (() => void) | null = null;
   private _segmentCount = 0;
@@ -149,7 +169,15 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
       if (target.x < Math.min(a.x, b.x) - padding || target.x > Math.max(a.x, b.x) + padding
         || target.y < Math.min(a.y, b.y) - padding || target.y > Math.max(a.y, b.y) + padding) continue;
 
-      const projected = record.rings.map((ring) => ring.map((value) => this.map!.latLngToContainerPoint(value)));
+      const vtx = this._vtxBuf;
+      const projected = record.rings.map((ring) => {
+        const out = new Array<{ x: number; y: number }>(ring.count);
+        for (let i = 0; i < ring.count; i++) {
+          const at = (ring.start + i) * 2;
+          out[i] = this.map!.latLngToContainerPoint({ lat: vtx[at], lng: vtx[at + 1] });
+        }
+        return out;
+      });
       let inside = false;
       if (record.filled) for (const ring of projected) if (ringContainsPoint(target, ring)) inside = !inside;
       const onStroke = projected.some((ring) => {
@@ -183,6 +211,8 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
 
   clearPaths(): this {
     this._segBuf = new Float32Array(0);
+    this._vtxBuf = new Float64Array(0);
+    this._vtxCount = 0;
     this._records = [];
     this._segmentCount = 0;
     this._bufferDirty = true;
@@ -202,19 +232,22 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
     if (style.strokeOpacity != null) this.writableOptions.strokeOpacity = style.strokeOpacity;
 
     // The GPU buffer is one flat run of segments with no feature boundaries in it, so hit testing
-    // needs its own record. Kept beside the buffer rather than inside it: the draw path stays
-    // untouched, and the cost is a reference to the rings plus a box per path.
-    const record: WebGLPathRecord = {
-      rings,
-      closed,
-      filled: closed && (style.fill ?? this.options.fill) !== "none",
-      strokeWidth: Number(style.strokeWidth ?? this.options.strokeWidth ?? 1.5),
-      minLat: Number.POSITIVE_INFINITY,
-      maxLat: Number.NEGATIVE_INFINITY,
-      minLng: Number.POSITIVE_INFINITY,
-      maxLng: Number.NEGATIVE_INFINITY,
-      feature
-    };
+    // needs its own record. Only an interactive batch will ever run one, so only an interactive
+    // batch pays for it; and what it keeps is the packed mercator this loop computes anyway, not
+    // a reference to the caller's objects.
+    const record: WebGLPathRecord | null = this.options.interactive
+      ? {
+        rings: [],
+        closed,
+        filled: closed && (style.fill ?? this.options.fill) !== "none",
+        strokeWidth: Number(style.strokeWidth ?? this.options.strokeWidth ?? 1.5),
+        minLat: Number.POSITIVE_INFINITY,
+        maxLat: Number.NEGATIVE_INFINITY,
+        minLng: Number.POSITIVE_INFINITY,
+        maxLng: Number.NEGATIVE_INFINITY,
+        feature
+      }
+      : null;
 
     for (const ring of rings) {
       if (ring.length < 2) continue;
@@ -222,6 +255,11 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
       this.#ensureCapacity((this._segmentCount + segments) * 4);
       let write = this._segmentCount * 4;
       const buf = this._segBuf;
+      // Interactive batches keep the vertices for hit testing, appended to one shared buffer.
+      const packed: PackedRing | null = record ? { start: this._vtxCount, count: ring.length } : null;
+      if (packed) this.#ensureVertexCapacity((this._vtxCount + ring.length) * 2);
+      const vtx = this._vtxBuf;
+      let vtxWrite = this._vtxCount * 2;
       let prevX = 0;
       let prevY = 0;
       for (let i = 0; i < ring.length; i++) {
@@ -231,10 +269,14 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
         if (p.lat > this._maxLat) this._maxLat = p.lat;
         if (p.lng < this._minLng) this._minLng = p.lng;
         if (p.lng > this._maxLng) this._maxLng = p.lng;
-        if (p.lat < record.minLat) record.minLat = p.lat;
-        if (p.lat > record.maxLat) record.maxLat = p.lat;
-        if (p.lng < record.minLng) record.minLng = p.lng;
-        if (p.lng > record.maxLng) record.maxLng = p.lng;
+        if (record && packed) {
+          if (p.lat < record.minLat) record.minLat = p.lat;
+          if (p.lat > record.maxLat) record.maxLat = p.lat;
+          if (p.lng < record.minLng) record.minLng = p.lng;
+          if (p.lng > record.maxLng) record.maxLng = p.lng;
+          vtx[vtxWrite++] = p.lat;
+          vtx[vtxWrite++] = p.lng;
+        }
         if (i > 0) {
           buf[write++] = prevX;
           buf[write++] = prevY;
@@ -245,8 +287,12 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
         prevY = m.y;
       }
       this._segmentCount = write / 4;
+      if (record && packed) {
+        record.rings.push(packed);
+        this._vtxCount = vtxWrite / 2;
+      }
     }
-    if (Number.isFinite(record.minLat)) this._records.push(record);
+    if (record && Number.isFinite(record.minLat)) this._records.push(record);
     this._bufferDirty = true;
     this._drawnZoom = Number.NaN;
     this._forceGpu = true;
@@ -462,6 +508,13 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
     const next = new Float32Array(Math.max(floats, Math.ceil(this._segBuf.length * 1.5) || floats));
     next.set(this._segBuf.subarray(0, this._segmentCount * 4));
     this._segBuf = next;
+  }
+
+  #ensureVertexCapacity(doubles: number): void {
+    if (this._vtxBuf.length >= doubles) return;
+    const next = new Float64Array(Math.max(doubles, Math.ceil(this._vtxBuf.length * 1.5) || doubles));
+    next.set(this._vtxBuf.subarray(0, this._vtxCount * 2));
+    this._vtxBuf = next;
   }
 
   #initWebGL(): boolean {

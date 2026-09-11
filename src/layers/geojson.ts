@@ -647,16 +647,21 @@ export class GeoJSONLayer extends FeatureGroup {
     const convert = (coordinates: GeoJSONPosition): LatLng => latLng(
       this.geoJSONOptions.coordsToLatLng?.(coordinates) ?? geoJSONCoordsToLatLng(coordinates)
     );
-    if (geometry.type === "Point") return this.#pointLayer(feature, convert(geometry.coordinates));
-    if (geometry.type === "MultiPoint") {
-      return new FeatureGroup(geometry.coordinates.map((coordinates) => this.#pointLayer(feature, convert(coordinates))));
-    }
+    // Collections come first: they carry no geometry of their own, and each child
+    // resolves the feature style in its own call.
     if (geometry.type === "GeometryCollection") {
       return new FeatureGroup(
         geometry.geometries.map((child) => this.#geometryToLayer(child, feature)).filter((layer): layer is InteractiveLayer => Boolean(layer))
       );
     }
+    // One resolution per feature, so a MultiPoint does not ask `style` once per coordinate.
     const style = this.#featureStyle(feature);
+    if (geometry.type === "Point") return this.#pointLayer(feature, convert(geometry.coordinates), style);
+    if (geometry.type === "MultiPoint") {
+      return new FeatureGroup(
+        geometry.coordinates.map((coordinates) => this.#pointLayer(feature, convert(coordinates), style))
+      );
+    }
     if (this.rendererMode === "canvas" || this.rendererMode === "webgl") {
       return this.#addBatchPath(geometry, style, convert, feature);
     }
@@ -700,18 +705,22 @@ export class GeoJSONLayer extends FeatureGroup {
         batch.bindPopup(content, this.geoJSONOptions.popupOptions);
       }
     }
+    // `retainFeatures: false` promises the layer will not hold on to the caller's features. The
+    // batch keeps whatever it is handed so a hit can report it, so honouring that promise means
+    // not handing it the feature at all — a hit on such a layer reports position and index only.
+    const retained = this.geoJSONOptions.retainFeatures !== false ? feature : undefined;
     if (geometry.type === "LineString") {
-      this._pathBatch.addPath([geometry.coordinates.map(convert)], false, style, feature);
+      this._pathBatch.addPath([geometry.coordinates.map(convert)], false, style, retained);
     } else if (geometry.type === "MultiLineString") {
       for (const part of geometry.coordinates) {
-        this._pathBatch.addPath([part.map(convert)], false, style, feature);
+        this._pathBatch.addPath([part.map(convert)], false, style, retained);
       }
     } else if (geometry.type === "Polygon") {
       this._pathBatch.addPath(
         geometry.coordinates.map((ring) => ring.map(convert)),
         true,
         { fill: style.fill ?? "#2563eb", ...style },
-        feature
+        retained
       );
     } else {
       for (const polygon of geometry.coordinates) {
@@ -719,15 +728,25 @@ export class GeoJSONLayer extends FeatureGroup {
           polygon.map((ring) => ring.map(convert)),
           true,
           { fill: style.fill ?? "#2563eb", ...style },
-          feature
+          retained
         );
       }
     }
     return this._pathBatch;
   }
 
-  #pointLayer(feature: GeoJSONFeature, position: LatLng): InteractiveLayer {
-    return this.geoJSONOptions.pointToLayer?.(feature, position) ?? new Marker(position);
+  /**
+   * A `pointToLayer` result joins the same style contract as a path: the layer's
+   * resolved feature style wins over the options the factory passed, and anything
+   * the style does not mention — a `radiusPixels`, an icon — survives untouched.
+   * That is what `resetStyle()` has always done to these layers, so construction
+   * and reset now agree. A plain `Marker` takes no `PathOptions` and `#applyStyle`
+   * leaves it alone.
+   */
+  #pointLayer(feature: GeoJSONFeature, position: LatLng, style: PathOptions): InteractiveLayer {
+    const layer = this.geoJSONOptions.pointToLayer?.(feature, position) ?? new Marker(position);
+    this.#applyStyle(layer, style);
+    return layer;
   }
 
   #featureStyle(feature: GeoJSONFeature): PathOptions {
