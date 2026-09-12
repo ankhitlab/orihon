@@ -1392,8 +1392,8 @@ function renderHome(items, navigation) {
     <p>В существующем приложении — установка и первая карта:</p>
     ${codeBlock("npm install orihon", "sh")}
     ${codeBlock(firstMap, "js")}
-    <p>Контейнеру нужна собственная высота: у <code>&lt;div&gt;</code> её нет, и карта отрисуется в ничто. Orihon сообщает об этом в консоль — см. <a href="https://github.com/whahedev/orihon/blob/master/docs/TROUBLESHOOTING.md#zero-size-container">Troubleshooting</a>.</p>
-    <p>Уровень пакета и сложность API — разные вещи. <code>orihon/core</code>, <code>orihon/standard</code> и <code>orihon</code> отвечают за состав и gzip-бюджет, а Easy, Layer API и Rendering API — за уровень управления; <code>orihon/easy</code> работает поверх Standard и остаётся map-centric (<code>map.addMarker({ position })</code>), а Layer API — layer-centric (<code>marker(position).addTo(map)</code>). Полный контракт Easy — в <a href="https://github.com/whahedev/orihon/blob/master/docs/EASY.md">docs/EASY.md</a>, весь публичный список команд — в <a href="https://github.com/whahedev/orihon/blob/master/docs/API.md">docs/API.md</a>.</p>
+    <p>Контейнеру нужна собственная высота: у <code>&lt;div&gt;</code> её нет, и карта отрисуется в ничто. Orihon сообщает об этом в консоль — см. <a href="https://github.com/ankhitlab/orihon/blob/master/docs/TROUBLESHOOTING.md#zero-size-container">Troubleshooting</a>.</p>
+    <p>Уровень пакета и сложность API — разные вещи. <code>orihon/core</code>, <code>orihon/standard</code> и <code>orihon</code> отвечают за состав и gzip-бюджет, а Easy, Layer API и Rendering API — за уровень управления; <code>orihon/easy</code> работает поверх Standard и остаётся map-centric (<code>map.addMarker({ position })</code>), а Layer API — layer-centric (<code>marker(position).addTo(map)</code>). Полный контракт Easy — в <a href="https://github.com/ankhitlab/orihon/blob/master/docs/EASY.md">docs/EASY.md</a>, весь публичный список команд — в <a href="https://github.com/ankhitlab/orihon/blob/master/docs/API.md">docs/API.md</a>.</p>
   </section>
   ${groups}`;
   return shell({
@@ -1424,7 +1424,7 @@ function renderFunctionPage(item, previous, next, navigation) {
     ).join("")}</tbody></table></div>` : ""}
     ${section.bullets ? `<ul>${section.bullets.map((bullet) => `<li>${markdownInline(bullet)}</li>`).join("")}</ul>` : ""}
   </section>`).join("");
-  const sourceUrl = `https://github.com/whahedev/orihon/blob/main/${item.source}#L${item.sourceLine}`;
+  const sourceUrl = `https://github.com/ankhitlab/orihon/blob/master/${item.source}#L${item.sourceLine}`;
   const content = `<article>
     <nav class="breadcrumbs"><a href="/examples/developer-guide/">Функции</a><span>/</span><a href="/examples/developer-guide/#${slug(item.group)}">${escapeHtml(item.group)}</a></nav>
     <header class="api-header">

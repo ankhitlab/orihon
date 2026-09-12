@@ -13,9 +13,9 @@ const templatesRoot = join(here, "templates");
 const MIN_NODE_MAJOR = 20;
 const FALLBACK_ORIHON = "^2.0.1";
 const DOCS = {
-  easy: "https://github.com/whahedev/orihon/blob/master/docs/EASY.md",
-  api: "https://github.com/whahedev/orihon/blob/master/docs/API.md",
-  trouble: "https://github.com/whahedev/orihon/blob/master/docs/TROUBLESHOOTING.md"
+  easy: "https://github.com/ankhitlab/orihon/blob/master/docs/EASY.md",
+  api: "https://github.com/ankhitlab/orihon/blob/master/docs/API.md",
+  trouble: "https://github.com/ankhitlab/orihon/blob/master/docs/TROUBLESHOOTING.md"
 };
 
 const TEMPLATES = [

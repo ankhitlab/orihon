@@ -819,7 +819,7 @@ export class Orihon extends Evented<MapEventMap> {
     view.console.warn(
       `Orihon: map container has zero ${axis}, so nothing will be visible. ` +
       `Give it an explicit ${axis}, for example \`${selector} { ${axis}: 400px }\`. ` +
-      "https://github.com/whahedev/orihon/blob/master/docs/TROUBLESHOOTING.md#zero-size-container"
+      "https://github.com/ankhitlab/orihon/blob/master/docs/TROUBLESHOOTING.md#zero-size-container"
     );
   }
 

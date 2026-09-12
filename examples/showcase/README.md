@@ -4,7 +4,7 @@ Full-bleed product demo: **Core → Standard → Advanced**, then stress scenari
 
 Self-contained `index.html` — open the file directly (Orihon loads from jsDelivr). No build or local server required.
 
-Live: https://whahedev.github.io/orihon/showcase/
+Live: https://ankhitlab.github.io/orihon/showcase/
 
 ## Hash routes
 

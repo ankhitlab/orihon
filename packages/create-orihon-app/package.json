@@ -26,10 +26,10 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/whahedev/orihon.git",
+    "url": "git+https://github.com/ankhitlab/orihon.git",
     "directory": "packages/create-orihon-app"
   },
-  "homepage": "https://github.com/whahedev/orihon#readme",
+  "homepage": "https://github.com/ankhitlab/orihon#readme",
   "engines": {
     "node": ">=20"
   }

@@ -6,7 +6,7 @@ Comparative browser bench: **Orihon**, **Leaflet**, **OpenLayers**, **MapLibre G
 
 Pinned comparison set (verified 2026-08-21): Orihon 2.0.1, Leaflet 1.9.4, Leaflet.markercluster 1.5.3, OpenLayers 10.10.0 and MapLibre GL 6.4.1. Keep pins explicit so exported results remain reproducible; update this table and all CSS/JS URLs together. MapLibre v6 is loaded through its ESM-only `maplibre-gl.mjs` entry.
 
-Live: https://whahedev.github.io/orihon/bench/
+Live: https://ankhitlab.github.io/orihon/bench/
 
 ## Scenarios
 

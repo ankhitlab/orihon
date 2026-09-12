@@ -13,6 +13,6 @@ each overlay. Delete the blocks you do not need. For declarative JSX layers late
 
 ## Where to go next
 
-- [Easy API](https://github.com/whahedev/orihon/blob/master/docs/EASY.md)
-- [API reference](https://github.com/whahedev/orihon/blob/master/docs/API.md)
-- [Troubleshooting](https://github.com/whahedev/orihon/blob/master/docs/TROUBLESHOOTING.md)
+- [Easy API](https://github.com/ankhitlab/orihon/blob/master/docs/EASY.md)
+- [API reference](https://github.com/ankhitlab/orihon/blob/master/docs/API.md)
+- [Troubleshooting](https://github.com/ankhitlab/orihon/blob/master/docs/TROUBLESHOOTING.md)

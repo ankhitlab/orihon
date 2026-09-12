@@ -217,10 +217,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/whahedev/orihon.git"
+    "url": "git+https://github.com/ankhitlab/orihon.git"
   },
   "bugs": {
-    "url": "https://github.com/whahedev/orihon/issues"
+    "url": "https://github.com/ankhitlab/orihon/issues"
   },
-  "homepage": "https://github.com/whahedev/orihon#readme"
+  "homepage": "https://github.com/ankhitlab/orihon#readme"
 }

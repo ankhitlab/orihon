@@ -55,4 +55,4 @@ npm create orihon-app my-map -- --center 55.75,37.62 --locale ru
 
 ## License
 
-Apache-2.0, same as [Orihon](https://github.com/whahedev/orihon).
+Apache-2.0, same as [Orihon](https://github.com/ankhitlab/orihon).

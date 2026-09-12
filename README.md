@@ -14,7 +14,7 @@ The product is **Orihon Maps**; the package name remains `orihon`.
 
 [![npm](https://img.shields.io/npm/v/orihon?color=0f766e)](https://www.npmjs.com/package/orihon)
 [![downloads](https://img.shields.io/npm/dm/orihon?color=0f766e)](https://www.npmjs.com/package/orihon)
-[![CI](https://github.com/whahedev/orihon/actions/workflows/ci.yml/badge.svg)](https://github.com/whahedev/orihon/actions/workflows/ci.yml)
+[![CI](https://github.com/ankhitlab/orihon/actions/workflows/ci.yml/badge.svg)](https://github.com/ankhitlab/orihon/actions/workflows/ci.yml)
 [![full size](https://img.shields.io/badge/full-<150_KiB_gzip-0f766e)](#size)
 [![license](https://img.shields.io/badge/license-Apache%202.0-0f766e)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6)](./tsconfig.json)
@@ -363,8 +363,8 @@ Core and Standard stay CPU/DOM. Advanced adds GPU backends for the workloads whe
 
 The repository includes two reproducible browser demos:
 
-- [Scale showcase](./examples/showcase) — Core → Standard → Advanced, then large-data scenes ([live](https://whahedev.github.io/orihon/showcase/))
-- [Engine benchmark](./examples/bench-compare) — the same point workload through Orihon, Leaflet, OpenLayers and MapLibre ([live](https://whahedev.github.io/orihon/bench/))
+- [Scale showcase](./examples/showcase) — Core → Standard → Advanced, then large-data scenes ([live](https://ankhitlab.github.io/orihon/showcase/))
+- [Engine benchmark](./examples/bench-compare) — the same point workload through Orihon, Leaflet, OpenLayers and MapLibre ([live](https://ankhitlab.github.io/orihon/bench/))
 
 Run the benchmarks rather than relying on a headline number; browser, GPU, dataset shape and interaction pattern all matter.
 
@@ -442,7 +442,7 @@ Start with the guide that matches what you are doing:
 - [Migrating to the next major](./docs/MIGRATION-NEXT-MAJOR.md)
 - [Security model](./docs/SECURITY.md)
 - [Developer Guide](./examples/developer-guide) — generated searchable function catalogue with runnable examples
-- [Examples hub](https://whahedev.github.io/orihon/)
+- [Examples hub](https://ankhitlab.github.io/orihon/)
 - [Plugin development](./docs/PLUGINS.md)
 - [Development, versions and benchmarks](./docs/DEVELOPMENT.md)
 - [Pricing](./docs/PRICING.md) — what is free and what Studio adds
