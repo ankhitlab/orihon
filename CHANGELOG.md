@@ -2,7 +2,42 @@
 
 <!-- changelog-polish-33 -->
 
-## Unreleased
+## 2.1.0 — 2026-09-12
+
+- **WebGL points project on the GPU.** Data that arrives as degrees is kept as float64
+  degrees and projected in the vertex shader from small offsets against a camera reference,
+  with the mercator derived only when something on the CPU asks for it. Moving a point costs
+  two stores instead of a sine and a logarithm: a million points updated every frame went from
+  17 to 59 FPS in the benchmark, and `setDataAsync` no longer projects on ingest. Positions
+  match the CPU path to the pixel up to zoom 22 and latitude 85. Data handed over already
+  projected (`setPackedData`) keeps the mercator path unchanged. `mercatorPrecision` now sets
+  the width of the derived mercator copy; degrees come back as given.
+- **ObjectManager `sceneFeatures` defaults to `"auto"`.** The per-object scene — geometries,
+  spatial index, decoration entries — stays down until a style resolver, an icon, declutter or
+  a line/polygon needs it, and is built from the stored objects then. Plain point sets cost
+  about 130 bytes an object instead of 430. `true` and `false` behave as before.
+- **GeoJSON `retainFeatures: false` is honoured by the WebGL renderer.** The path batch used to
+  pin every feature and its coordinate object graph regardless: a million four-vertex lines
+  held 660 MB beside a 60 MB draw buffer. A non-interactive batch now keeps only the draw
+  buffer; an interactive one packs its vertices into a single buffer.
+- **Canvas paths and clusters cache their projection.** Rings and cluster centres are projected
+  to normalised mercator once and moved by the camera with a multiply and a subtract per
+  frame, rather than re-running the trigonometry on every redraw.
+- **Heat layers reuse their worker.** A removed layer hands its worker to the next one instead
+  of terminating it; starting one cost more than the field it computes.
+- **Small things measured.** `latLngToContainerPoint` folds the origin into the point it
+  already builds; hit-test loops use `sqrt` where `Math.hypot` was seven times slower;
+  `patchPoints` skips the sort when indices already arrive ascending; `projectMercator01`
+  is exported from every entry.
+- **Benchmark harness.** Leaflet and OpenLayers run GeoJSON at a million (a 50 000 cap had
+  assumed they could not); MapLibre's large-GeoJSON source gets the `maxzoom`/`buffer` bounds
+  its docs recommend instead of taking the tab down; OpenLayers draws points through WebGL and
+  Leaflet adds markers in one batch. The million-point column is a median of three sweeps.
+
+- **Browser distribution:** ESM entries now share implementation chunks and React context. Deploy entries with their chunks. ObjectManager defers the heat renderer until first heat visualization and reports download failures through `sceneerror`; synchronous mutation return values remain unchanged. WASM debug metadata and shader whitespace are compacted. Shared application downloads shrink, while isolated Core/Standard closures grow; size budgets now track both individual and combined loads.
+
+- **ObjectManager performance and safety:** atomic update-ID validation, current spatial records, complete mixed-geometry batches, deferred bulk flush, stable-ID reconciliation, dirty scene updates, bbox culling, shared icon/label collision layout and partial GPU symbol uploads. Map queries resolve managed owners without duplicate hit tests.
+- **AI:** correct points replacement, cancellation and tool budget, safe JSON keys, shared immutable collection records, bounded context/query APIs, transaction deltas with rollback, and bounded SSE queues with explicit resync. See [API and migration details](docs/PERFORMANCE-OBJECT-MANAGER.md).
 
 - **Fixed — a fitted camera no longer snaps back on every later intent.** A `viewport.mode:"fit"`
   hint is meant to expire with the revision that produced it, and `getSnapshot()` drops it
