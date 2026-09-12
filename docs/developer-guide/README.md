@@ -15,6 +15,10 @@ npm run demo:docs
 Open `http://127.0.0.1:4179/examples/developer-guide/`. The documentation server is a
 small repository-local Node server, so it does not download or depend on a global static-server package.
 
-The generator deletes and recreates only `examples/developer-guide/functions/`.
-Every current public function gets one physical `functions/<name>/index.html` page.
-Legacy Confluence functions that are no longer exported are intentionally omitted.
+The generator deletes and recreates `examples/developer-guide/functions/` and rewrites
+`index.html` and `manifest.json` next to it. Those outputs are build artefacts and are not
+tracked in git — only the hand-written shell (`assets/`, `playground.html`) is. Every current
+public function gets one physical `functions/<name>/index.html` page. Legacy Confluence
+functions that are no longer exported are intentionally omitted. `npm run docs:check` (run in
+CI and before publishing) rebuilds the guide and verifies a page exists for every catalogued
+function.

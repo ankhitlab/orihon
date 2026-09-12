@@ -210,7 +210,11 @@ test("developer guide generator is wired to the local docs server", async () => 
   assert.match(pkg.scripts.check, /docs:check/);
   assert.match(pkg.scripts["demo:docs"], /docs:build[\s\S]*developer-guide-server\.mjs/);
   const checker = await readFile(new URL("scripts/check-developer-guide.mjs", root), "utf8");
-  assert.match(checker, /build-developer-guide\.mjs[\s\S]*git[\s\S]*diff[\s\S]*--exit-code/);
+  // The generated pages are untracked, so the checker builds and verifies the output
+  // rather than diffing it against git.
+  assert.match(checker, /build-developer-guide\.mjs[\s\S]*manifest\.json[\s\S]*functions\/\$\{item\.name\}\/index\.html/);
+  assert.doesNotMatch(checker, /--exit-code/);
+  assert.match(pkg.scripts.pretest, /docs:build/);
   const server = await readFile(new URL("scripts/developer-guide-server.mjs", root), "utf8");
   assert.match(server, /ORIHON_DOCS_PORT[\s\S]*4179/);
   assert.match(server, /candidate !== root[\s\S]*startsWith\(root \+ sep\)/);
