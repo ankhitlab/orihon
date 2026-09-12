@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { projectMercator01 } from "../dist/geo.js";
 import { Evented } from "../dist/events.js";
 import { clusterLayoutWorkerSource, encodeClusterIndex, decodeClusterIndex } from "../dist/services/cluster-layout.js";
 import { getSharedGeometryWorkerPool } from "../dist/services/geometry-worker.js";
@@ -280,7 +281,13 @@ test("WebGLPointLayer stores large point batches compactly", () => {
 
   assert.ok(layer instanceof WebGLPointLayer);
   assert.equal(layer.getStats().points, 2);
-  assert.equal(layer.getStats().bufferBytes, 64);
+  // 2 points of float64 mercator, and nothing else: this layer is not interactive,
+  // so degrees are derived on demand, and the camera-relative float32 copy is
+  // streamed to the GPU rather than stored. It used to keep all three.
+  assert.equal(layer.getStats().bufferBytes, 32);
+  // Asking for degrees materialises and caches them, which shows up in the stats.
+  assert.equal(layer.points.length, 4);
+  assert.equal(layer.getStats().bufferBytes, 48);
   layer.addData([{ latlng: { lat: 52.54, lng: 13.42 } }]);
   assert.equal(layer.getStats().points, 3);
   assert.equal(layer.mercator.length, 6);
@@ -312,28 +319,47 @@ test("WebGLPointLayer setDataAsync projects chunks and adopts packed buffers", a
 
 test("WebGLPointLayer reuses CPU buffers on repeated setData", () => {
   const layer = webglPointLayer([{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }], { interactive: false });
-  const firstLat = layer.points.buffer;
-  const firstMerc = layer.mercator.buffer;
+  // Mercator is the only per-point buffer a non-interactive layer keeps now: the
+  // camera-relative copy is streamed to the GPU and degrees are derived on demand,
+  // so this is what repeated setData has to reuse.
+  const firstMerc = layer.getMercatorAbs().buffer;
   layer.setData([{ lat: 5, lng: 6 }, { lat: 7, lng: 8 }]);
   assert.equal(layer.getStats().points, 2);
-  assert.equal(layer.points.buffer, firstLat);
-  assert.equal(layer.mercator.buffer, firstMerc);
+  assert.equal(layer.getMercatorAbs().buffer, firstMerc);
   layer.setData([{ lat: 9, lng: 10 }, { lat: 11, lng: 12 }, { lat: 13, lng: 14 }]);
   assert.equal(layer.getStats().points, 3);
 });
 
 test("WebGLPointLayer skips pick-index when not interactive and can adopt packed buffers", () => {
+  // Mercator has to be the real projection of these degrees: a non-interactive layer
+  // does not store the degrees at all and derives them back from it on demand.
   const latlng = new Float32Array([52.5, 13.4, 52.51, 13.41]);
-  const merc64 = new Float64Array([0.5, 0.4, 0.51, 0.41]);
+  const merc64 = new Float64Array(4);
+  for (let i = 0; i < 2; i++) {
+    const m = projectMercator01(latlng[i * 2], latlng[i * 2 + 1]);
+    merc64[i * 2] = m.x;
+    merc64[i * 2 + 1] = m.y;
+  }
+
   const layer = webglPointLayer([], { interactive: false });
   layer.setPackedData(latlng, merc64, { adopt: true });
   assert.equal(layer.getStats().points, 2);
   assert.equal(layer.getStats().pickIndex, 0);
-  assert.equal(layer.getLatLngBuf().buffer, latlng.buffer);
+  // The degrees buffer is not kept — that is 8 bytes per point of storage saved — so
+  // it is rebuilt rather than being the caller's array.
+  assert.notEqual(layer.getLatLngBuf().buffer, latlng.buffer);
+  assert.ok(Math.abs(layer.getLatLngBuf()[0] - 52.5) < 1e-4);
+  assert.ok(Math.abs(layer.getLatLngBuf()[1] - 13.4) < 1e-4);
+
   layer.setInteractive(true);
   assert.equal(layer.getStats().pickIndex, 2);
   layer.setInteractive(false);
   assert.equal(layer.getStats().pickIndex, 0);
+
+  // An interactive layer keeps the caller's buffer, since it needs the degrees anyway.
+  const live = webglPointLayer([], { interactive: true });
+  live.setPackedData(latlng, merc64, { adopt: true });
+  assert.equal(live.getLatLngBuf().buffer, latlng.buffer);
 });
 
 test("WebGLPointLayer accepts per-point RGBA colors", () => {

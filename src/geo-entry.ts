@@ -16,6 +16,7 @@ export {
   destination,
   geodesicInterpolate,
   wrapLng,
+  projectMercator01,
   EARTH_RADIUS
 } from "./geo.js";
 

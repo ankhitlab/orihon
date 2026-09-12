@@ -99,6 +99,7 @@ export {
   bounds,
   project,
   unproject,
+  projectMercator01,
   distance,
   destination,
   geodesicInterpolate,

@@ -44,7 +44,28 @@ export interface WebGLPointLayerOptions extends LayerOptions {
   hitTolerance?: number;
   /** When true, canvas fallback still CPU-culls. WebGL always transforms on GPU. */
   cull?: boolean;
+  /**
+   * Storage for the absolute world mercator, 16 bytes per point at `"f64"` (the
+   * default) and 8 at `"f32"`.
+   *
+   * Float32 has ~24 bits of mantissa, so a normalized 0..1 mercator quantises to
+   * roughly 3e-8 — about 0.1px at zoom 14, 0.5px at 16, 2px at 18 and 8px at 20.
+   * Choose `"f32"` only for datasets that stay below roughly zoom 16; above that
+   * points visibly wobble as the camera moves.
+   *
+   * What this governs depends on how the data arrived. Data handed over already
+   * projected (`setPackedData`) is stored as mercator and drawn from it, so
+   * `points`, click payloads and the hit-test index all inherit this precision.
+   * Data that arrives as degrees (`setData`, `setDataAsync`, the constructor) is
+   * kept as float64 degrees and projected on the GPU; the mercator then exists only
+   * for CPU readers — `getMercatorAbs()`, the canvas fallback — and this option sets
+   * the width of that derived copy, while degrees come back exactly as given.
+   */
+  mercatorPrecision?: "f64" | "f32";
 }
+
+/** Absolute mercator storage; float32 halves it at the cost of high-zoom precision. */
+export type MercatorBuffer = Float64Array | Float32Array;
 
 type ResolvedWebGLPointLayerOptions = Required<WebGLPointLayerOptions>;
 
@@ -64,6 +85,8 @@ interface GLLocations {
   uRotate: WebGLUniformLocation | null;
   uPitch: WebGLUniformLocation | null;
   uRound: WebGLUniformLocation | null;
+  uGpuProject: WebGLUniformLocation | null;
+  uRefTan: WebGLUniformLocation | null;
 }
 
 export interface WebGLPointLayerStats {
@@ -82,6 +105,16 @@ export interface WebGLPointEventMap {
   hover: { originalEvent: MouseEvent; latlng: LatLngLike | null; containerPoint: { x: number; y: number } | null; index: number; data: WebGLPointInput | null | undefined };
 }
 
+/**
+ * Above this many points an interactive layer stops holding the caller's source
+ * objects: `pointData` is what feeds click/hover payloads, and a million of them
+ * costs far more than the packed buffers they sit beside.
+ */
+const SOURCE_RETENTION_MAX = 40_000;
+
+/** Upload window for camera-relative mercator: 64k floats, one 256 KB buffer. */
+const STAGE_FLOATS = 65_536;
+
 export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOptions, WebGLPointEventMap> {
   canvas: HTMLCanvasElement | null = null;
   gl: WebGLRenderingContext | null = null;
@@ -89,13 +122,38 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   buffer: WebGLBuffer | null = null;
   colorBuffer: WebGLBuffer | null = null;
   sizeBuffer: WebGLBuffer | null = null;
-  /** Packed lat/lng pairs for hit-testing and canvas fallback. */
-  points: Float32Array = new Float32Array();
   /**
-   * GPU upload buffer: mercator relative to the current camera ref (float32).
-   * Absolute world mercator lives in `_merc64` (float64) to avoid high-zoom collapse.
+   * Packed lat/lng pairs.
+   *
+   * Degrees are only needed for hit-testing, `addData()` and event payloads —
+   * drawing works off the mercator buffer — so a non-interactive layer no longer
+   * stores them, saving 8 bytes per point. Reading this property rebuilds them
+   * from `_merc64` once and caches the result, which is why the getter is cheap
+   * on repeat but not free the first time.
    */
-  mercator: Float32Array = new Float32Array();
+  get points(): Float32Array {
+    if (!this._latlngValid) this.#materialiseLatLng();
+    return this._latlngBuf.subarray(0, this._count);
+  }
+
+  /** Floats in the current dataset; two per point. */
+  private _count = 0;
+  /** False when `_latlngBuf` has not been derived for the current data yet. */
+  private _latlngValid = true;
+  /**
+   * Camera-relative float32 mercator, as uploaded to the GPU.
+   *
+   * @deprecated The layer no longer keeps a full-size copy of this — it encodes
+   * straight from `_merc64` into a small staging window while uploading, which
+   * saves 8 bytes per point. Reading this property materialises a fresh array
+   * every time; prefer `getMercatorAbs()` for the stored absolute buffer.
+   */
+  get mercator(): Float32Array {
+    const count = this._count;
+    const out = new Float32Array(count);
+    if (count && Number.isFinite(this._refMx)) this.#encodeInto(out, 0, 0, count);
+    return out;
+  }
   /** Interleaved RGBA bytes (0..255) when per-point colors are enabled. */
   colors: Uint8Array = new Uint8Array();
   /** Per-point sizes in CSS pixels when vertex sizes are enabled. */
@@ -114,8 +172,32 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   private _scratch: Float32Array = new Float32Array(0);
   private _scratchColors: Float32Array = new Float32Array(0);
   private _latlngBuf = new Float32Array(0);
-  private _merc64 = new Float64Array(0);
-  private _drawMerc = new Float32Array(0);
+  private _merc64: MercatorBuffer = new Float64Array(0);
+  /**
+   * Which store is canonical. Data that arrives as degrees is kept as degrees in
+   * float64 and projected on the GPU: the staging buffer then carries degree offsets
+   * from a reference, and moving a point costs a subtraction rather than a sine and a
+   * logarithm — which was 85% of every live-update frame at a million points.
+   * `_merc64` still exists in this mode, but derived, and only once something on the
+   * CPU — a hit test, the canvas fallback, the mercator getters — actually needs it.
+   *
+   * Data that arrives already projected (`setPackedData`) stays in mercator mode, as
+   * before: there are no float64 degrees to take offsets from.
+   */
+  private _gpuProject = false;
+  /** Degrees in float64, lat then lng; the canonical store under `_gpuProject`. */
+  private _latlng64: Float64Array<ArrayBufferLike> = new Float64Array(0);
+  /** Float range of `_latlng64` that `_merc64` has not been rebuilt from yet; `from < 0` means clean. */
+  private _mercStaleFrom = -1;
+  private _mercStaleTo = -1;
+  /**
+   * Staging window for GPU uploads. Camera-relative mercator used to be kept for
+   * every point (8 bytes each); it is derived from `_merc64` a window at a time
+   * instead, because nothing but the upload ever reads it.
+   */
+  private _stage = new Float32Array(0);
+  /** Floats already encoded against `_refMx/_refMy`; 0 forces a full re-encode. */
+  private _encodedCount = 0;
   private _colorBuf = new Uint8Array(0);
   private _colorFloat = new Float32Array(0);
   private _sizeBuf = new Float32Array(0);
@@ -128,6 +210,10 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   private _gpuSizeBytes = 0;
   private _refMx = 0;
   private _refMy = 0;
+  /** The same reference in degrees, for the GPU-projected encoding, plus the tangent the shader needs. */
+  private _refLat = 0;
+  private _refLng = 0;
+  private _refTan = 1;
   private _refZoom = Number.NaN;
   private _refOriginX = 0;
   private _refOriginY = 0;
@@ -159,6 +245,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       interactive: false,
       hitTolerance: 5,
       cull: true,
+      mercatorPrecision: "f64",
       ...options
     });
     this.color = parseCssColor(this.options.color, { r: 225, g: 29, b: 72 });
@@ -225,17 +312,20 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       this.canvas.remove();
     }
     this.canvas = null;
-    this.points = new Float32Array();
-    this.mercator = new Float32Array();
+    this._count = 0;
+    this._latlngValid = true;
     this.colors = new Uint8Array();
     this.sizes = new Float32Array();
-    this._merc64 = new Float64Array(0);
-    this._drawMerc = new Float32Array(0);
+    this._merc64 = this.#newMerc(0);
+    this._stage = new Float32Array(0);
+    this._encodedCount = 0;
+    this.#enterMercatorMode();
     this._colorBuf = new Uint8Array(0);
     this._colorFloat = new Float32Array(0);
     this._sizeBuf = new Float32Array(0);
     this.pointData = [];
     this._latlngBuf = new Float32Array(0);
+    this._packedAdopted = false;
     this._scratch = new Float32Array(0);
     this._scratchColors = new Float32Array(0);
     this._useVertexColor = false;
@@ -246,17 +336,179 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     super.onRemove();
   }
 
+  /**
+   * Rebuild lat/lng degrees from the stored mercator. Exact inverse of
+   * `projectMercator01`, so a float64 layer round-trips to within float32 anyway;
+   * under `mercatorPrecision: "f32"` the degrees inherit that buffer's precision.
+   */
+  #materialiseLatLng(): void {
+    const n = this._count;
+    if (this._latlngBuf.length < n) this._latlngBuf = new Float32Array(n);
+    if (this._gpuProject) {
+      // The degrees are already here in float64; this is just the float32 narrowing.
+      this._latlngBuf.set(this._latlng64.subarray(0, n));
+      this._latlngValid = true;
+      return;
+    }
+    const merc = this._merc64;
+    const toDeg = 180 / Math.PI;
+    for (let i = 0; i < n; i += 2) {
+      this._latlngBuf[i] = Math.atan(Math.sinh((0.5 - merc[i + 1]) * 2 * Math.PI)) * toDeg;
+      this._latlngBuf[i + 1] = merc[i] * 360 - 180;
+    }
+    this._latlngValid = true;
+  }
+
+  /** Reusable upload window, capped so a million points cost one 256 KB buffer. */
+  #stageWindow(floats: number): Float32Array {
+    const want = Math.min(floats, STAGE_FLOATS);
+    if (this._stage.length < want) this._stage = new Float32Array(want);
+    return this._stage;
+  }
+
+  /**
+   * Encode `floatCount` camera-relative floats starting at `srcOffset` of the
+   * absolute buffer into `dst[dstOffset…]`. This is the whole reason the layer no
+   * longer needs a second full-size array.
+   */
+  #encodeInto(dst: Float32Array, dstOffset: number, srcOffset: number, floatCount: number): void {
+    if (this._gpuProject) {
+      // Degree offsets, subtracted in float64 so the small result keeps its full precision
+      // in float32. The shader turns them into a mercator delta; see mercDeltaY there.
+      // Order is (lng, lat) to match the (x, y) the mercator encoding uses. No wrapping:
+      // the mercator encoding never wrapped either — a point across the antimeridian from
+      // the reference is a world away in both — and this loop runs over every point the
+      // dirty ranges cover, so it has to stay as cheap as the two subtractions it replaces.
+      const src = this._latlng64;
+      const refLat = this._refLat;
+      const refLng = this._refLng;
+      for (let i = 0; i < floatCount; i += 2) {
+        dst[dstOffset + i] = src[srcOffset + i + 1] - refLng;
+        dst[dstOffset + i + 1] = src[srcOffset + i] - refLat;
+      }
+      return;
+    }
+    const src = this._merc64;
+    const refX = this._refMx;
+    const refY = this._refMy;
+    for (let i = 0; i < floatCount; i += 2) {
+      dst[dstOffset + i] = src[srcOffset + i] - refX;
+      dst[dstOffset + i + 1] = src[srcOffset + i + 1] - refY;
+    }
+  }
+
+  /**
+   * The mercator reference expressed as degrees, and the tangent the shader's stable
+   * delta formula needs. All float64 here; the shader receives them as float32, which
+   * the measurement showed costs nothing visible: relative error in the tangent stays
+   * relative in the result, and the result is a small delta.
+   */
+  #deriveDegreeReference(): void {
+    this._refLng = this._refMx * 360 - 180;
+    const latRad = Math.atan(Math.sinh((0.5 - this._refMy) * 2 * Math.PI));
+    this._refLat = (latRad * 180) / Math.PI;
+    this._refTan = Math.tan(Math.PI / 4 + latRad / 2);
+  }
+
+  /**
+   * Brings `_merc64` up to date with `_latlng64` over whatever range moved since the last
+   * CPU consumer looked. Under GPU projection nothing on the render path needs it, so a
+   * non-interactive layer never pays for this at all.
+   */
+  #ensureMerc(): void {
+    if (!this._gpuProject || this._mercStaleFrom < 0) return;
+    let from = this._mercStaleFrom;
+    let to = Math.min(this._mercStaleTo, this._count);
+    if (this._merc64.length < this._count) {
+      // A buffer that has never held the whole set has no clean prefix worth keeping.
+      this._merc64 = this.#newMerc(this._count);
+      from = 0;
+      to = this._count;
+    }
+    const src = this._latlng64;
+    const merc = this._merc64;
+    for (let i = from; i < to; i += 2) {
+      const m = projectMercator01(src[i], src[i + 1]);
+      merc[i] = m.x;
+      merc[i + 1] = m.y;
+    }
+    this._mercStaleFrom = -1;
+    this._mercStaleTo = -1;
+  }
+
+  /**
+   * Writes one point's new position at float offset `slot`. This is the whole of what
+   * moving a point costs on the CPU under GPU projection: two stores and a bookkeeping
+   * range, with the projection left to the shader. In mercator mode it is what it always
+   * was — a sine, a logarithm and four stores.
+   */
+  #storePosition(slot: number, lat: number, lng: number): void {
+    if (this._gpuProject) {
+      this._latlng64[slot] = lat;
+      this._latlng64[slot + 1] = lng;
+      this._latlngValid = false;
+      this.#markMercStale(slot, slot + 2);
+      return;
+    }
+    const m = projectMercator01(lat, lng);
+    if (this._latlngBuf.length > slot + 1) {
+      this._latlngBuf[slot] = lat;
+      this._latlngBuf[slot + 1] = lng;
+    }
+    this._merc64[slot] = m.x;
+    this._merc64[slot + 1] = m.y;
+  }
+
+  /** Widens the stale range to cover `[from, to)` floats of `_latlng64`. */
+  #markMercStale(from: number, to: number): void {
+    if (this._mercStaleFrom < 0) {
+      this._mercStaleFrom = from;
+      this._mercStaleTo = to;
+      return;
+    }
+    if (from < this._mercStaleFrom) this._mercStaleFrom = from;
+    if (to > this._mercStaleTo) this._mercStaleTo = to;
+  }
+
+  /** Absolute-mercator storage in whichever precision this layer was configured for. */
+  #newMerc(length: number): MercatorBuffer {
+    return this.options.mercatorPrecision === "f32"
+      ? new Float32Array(length)
+      : new Float64Array(length);
+  }
+
+  /** True when `buffer` already matches the configured precision and can be kept as-is. */
+  #mercMatches(buffer: MercatorBuffer): boolean {
+    return this.options.mercatorPrecision === "f32"
+      ? buffer instanceof Float32Array
+      : buffer instanceof Float64Array;
+  }
+
   setData(points: Iterable<WebGLPointInput>, options: WebGLPointDataOptions = {}): this {
-    const keepData = this.options.interactive && (!Array.isArray(points) || points.length <= 40_000);
+    // Arrays can be checked outright; an iterable is provisional and the loop below
+    // stops retaining as soon as it passes the cap.
+    const keepData =
+      this.options.interactive && (!Array.isArray(points) || points.length <= SOURCE_RETENTION_MAX);
+    // Degrees are only needed for hit-testing and event payloads. A non-interactive
+    // layer skips storing them entirely and derives them on demand instead.
+    const needLatLng = this.options.interactive;
     let keptCount = 0;
 
     if (Array.isArray(points)) {
       const need = points.length * 2;
-      if (this._latlngBuf.length < need) this._latlngBuf = new Float32Array(need);
-      if (this._merc64.length < need) this._merc64 = new Float64Array(need);
-      if (this._drawMerc.length < need) this._drawMerc = new Float32Array(need);
-      const latlng = this._latlngBuf;
-      const merc64 = this._merc64;
+      // Adopted buffers are the caller's storage — ObjectManager keeps its own
+      // reference to them rather than copying — so a new dataset allocates instead
+      // of overwriting them, the same rule `setPackedData()` follows.
+      if (this._packedAdopted) {
+        this._latlngBuf = new Float32Array(0);
+        this._merc64 = this.#newMerc(0);
+        this._packedAdopted = false;
+      }
+      // Degrees arrive here, so this dataset is projected on the GPU: keep the degrees in
+      // float64 and leave the mercator to be derived if anything on the CPU asks. The
+      // float32 degree copy the `points` getter hands out is derived the same way.
+      if (this._latlng64.length < need) this._latlng64 = new Float64Array(need);
+      const latlng64 = this._latlng64;
       const data: WebGLPointInput[] = keepData ? new Array(points.length) : [];
       let write = 0;
       let kept = 0;
@@ -264,16 +516,13 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
         const item = points[index];
         const next = normalizePoint(item);
         if (!next) continue;
-        const m = projectMercator01(next.lat, next.lng);
-        latlng[write] = next.lat;
-        latlng[write + 1] = next.lng;
-        merc64[write] = m.x;
-        merc64[write + 1] = m.y;
+        latlng64[write] = next.lat;
+        latlng64[write + 1] = next.lng;
         write += 2;
         if (keepData) data[kept++] = item;
       }
-      this.points = latlng.subarray(0, write);
-      this.mercator = this._drawMerc.subarray(0, write);
+      this._count = write;
+      this.#enterGpuProjection();
       // slice() copied the whole array even when nothing had been filtered out, which is the usual
       // case. Truncating in place costs nothing and keeps the same array when every point was kept.
       if (!keepData) this.pointData = [];
@@ -283,23 +532,34 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       }
       keptCount = write / 2;
     } else {
-      const latlngValues: number[] = [];
-      const mercValues: number[] = [];
-      this.pointData = [];
+      const store = new PointPairStore(sizeHintOf(points));
+      // An iterable has no length to check up front, so the retention cap is enforced
+      // as we go: once the source outgrows it, drop what was collected rather than
+      // leaving `pointData` half filled, which is what the array path does too.
+      let retainSource = keepData;
+      const data: WebGLPointInput[] = [];
       for (const item of points) {
         const next = normalizePoint(item);
         if (!next) continue;
-        const m = projectMercator01(next.lat, next.lng);
-        latlngValues.push(next.lat, next.lng);
-        mercValues.push(m.x, m.y);
-        if (keepData) this.pointData.push(item);
+        store.push(next.lat, next.lng);
+        if (retainSource) {
+          if (data.length >= SOURCE_RETENTION_MAX) {
+            retainSource = false;
+            data.length = 0;
+          } else data.push(item);
+        }
       }
-      this._latlngBuf = new Float32Array(latlngValues);
-      this._merc64 = new Float64Array(mercValues);
-      this._drawMerc = new Float32Array(mercValues.length);
-      this.points = this._latlngBuf;
-      this.mercator = this._drawMerc.subarray(0, mercValues.length);
-      keptCount = mercValues.length / 2;
+      const write = store.length;
+      if (this._packedAdopted) {
+        this._latlngBuf = new Float32Array(0);
+        this._merc64 = this.#newMerc(0);
+        this._packedAdopted = false;
+      }
+      this._latlng64 = store.take();
+      this._count = write;
+      this.#enterGpuProjection();
+      this.pointData = retainSource ? data : [];
+      keptCount = write / 2;
     }
 
     this.#applyColors(options.colors, keptCount);
@@ -325,30 +585,27 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     throwIfAsyncAborted(resolved.signal);
 
     // Preserve source objects for the small interactive path just like setData().
-    if (Array.isArray(points) && this.options.interactive && points.length <= 40_000) {
+    if (Array.isArray(points) && this.options.interactive && points.length <= SOURCE_RETENTION_MAX) {
       this.setData(points, options);
       resolved.onProgress?.(points.length, points.length);
       return this;
     }
 
-    let latlngBuffer = total == null ? null : new Float32Array(total * 2);
-    let mercatorBuffer = total == null ? null : new Float64Array(total * 2);
-    const latlngValues: number[] = [];
-    const mercatorValues: number[] = [];
+    // Degrees only, in float64: the dataset will be projected on the GPU, and the
+    // mercator any CPU consumer needs is derived later, on demand.
+    let degrees: Float64Array | null = total == null ? null : new Float64Array(total * 2);
+    /* Unsized sources grow typed arrays rather than staging boxed numbers. */
+    const store = total == null ? new PointPairStore(sizeHintOf(points)) : null;
     let processed = 0;
     let write = 0;
     const append = (item: WebGLPointInput): void => {
       const next = normalizePoint(item);
       if (!next) return;
-      const mercator = projectMercator01(next.lat, next.lng);
-      if (latlngBuffer && mercatorBuffer) {
-        latlngBuffer[write] = next.lat;
-        latlngBuffer[write + 1] = next.lng;
-        mercatorBuffer[write] = mercator.x;
-        mercatorBuffer[write + 1] = mercator.y;
+      if (degrees) {
+        degrees[write] = next.lat;
+        degrees[write + 1] = next.lng;
       } else {
-        latlngValues.push(next.lat, next.lng);
-        mercatorValues.push(mercator.x, mercator.y);
+        store!.push(next.lat, next.lng);
       }
       write += 2;
     };
@@ -379,54 +636,88 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     }
     if (processed % resolved.chunkSize !== 0) await checkpoint(true);
 
-    if (!latlngBuffer || !mercatorBuffer) {
-      latlngBuffer = new Float32Array(latlngValues);
-      mercatorBuffer = new Float64Array(mercatorValues);
-    } else if (write !== latlngBuffer.length) {
-      latlngBuffer = latlngBuffer.slice(0, write);
-      mercatorBuffer = mercatorBuffer.slice(0, write);
-    }
-    this.setPackedData(latlngBuffer, mercatorBuffer, {
-      colors: options.colors,
-      sizes: options.sizes,
-      adopt: true
-    });
+    if (!degrees) degrees = store!.take();
+    else if (write !== degrees.length) degrees = degrees.slice(0, write);
+    this.#adoptDegrees(degrees, write, options);
     return this;
+  }
+
+  /**
+   * Installs a float64 degree buffer as the layer's dataset and switches to GPU
+   * projection. The buffer is taken over, not copied: the async ingest built it for
+   * exactly this, and `setData` already made its own.
+   */
+  #adoptDegrees(degrees: Float64Array<ArrayBufferLike>, count: number, options: WebGLPointDataOptions): void {
+    if (this._packedAdopted) {
+      this._latlngBuf = new Float32Array(0);
+      this._merc64 = this.#newMerc(0);
+      this._packedAdopted = false;
+    }
+    this._latlng64 = degrees;
+    this._count = count;
+    this.pointData = [];
+    this.#enterGpuProjection();
+    this.#applyColors(options.colors, count / 2);
+    this.#applySizes(options.sizes, count / 2);
+    this.#rebuildPickIndex();
+    this._refZoom = Number.NaN;
+    this._bufferDirty = true;
+    this._forceGpu = true;
+    this.render();
+  }
+
+  /**
+   * `_latlng64` is now canonical: the whole mercator is stale, the float32 degree copy
+   * is stale, and whatever the staging buffer held was encoded the other way.
+   */
+  #enterGpuProjection(): void {
+    this._gpuProject = true;
+    this._latlngValid = false;
+    this._mercStaleFrom = 0;
+    this._mercStaleTo = this._count;
+    this._encodedCount = 0;
+  }
+
+  /** `_merc64` is canonical again; there are no float64 degrees to take offsets from. */
+  #enterMercatorMode(): void {
+    this._gpuProject = false;
+    this._latlng64 = new Float64Array(0);
+    this._mercStaleFrom = -1;
+    this._mercStaleTo = -1;
+    this._encodedCount = 0;
   }
 
   /** Replace per-point RGBA (0..1). Pass null to fall back to uniform `color`. */
   setColors(colors: ArrayLike<number> | null): this {
-    this.#applyColors(colors, this.points.length / 2);
+    this.#applyColors(colors, this._count / 2);
     this.render();
     return this;
   }
 
   /** Replace per-point sizes in CSS pixels. Pass null to fall back to uniform `pointSize`. */
   setSizes(sizes: ArrayLike<number> | null): this {
-    this.#applySizes(sizes, this.points.length / 2);
+    this.#applySizes(sizes, this._count / 2);
     this.render();
     return this;
   }
 
   /**
    * Patch a single point in place (no full re-encode). Used by ObjectManager live updates.
+   *
+   * Unlike `setData()`, the patch methods deliberately write through to buffers taken with
+   * `setPackedData(..., { adopt: true })`: an owner that kept its own reference sees the same
+   * update, which is how ObjectManager shares one set of arrays with this layer rather than
+   * holding a second copy. Replacing the dataset is the case that must not reuse borrowed
+   * storage; moving a point inside it is not.
    */
   patchPoint(index: number, lat: number, lng: number): this {
     const i = index * 2;
-    if (i < 0 || i + 1 >= this.points.length) return this;
-    const m = projectMercator01(lat, lng);
-    this._latlngBuf[i] = lat;
-    this._latlngBuf[i + 1] = lng;
-    this._merc64[i] = m.x;
-    this._merc64[i + 1] = m.y;
+    if (i < 0 || i + 1 >= this._count) return this;
+    this.#storePosition(i, lat, lng);
     if (this.options.interactive) this._pickIndex.set(index, { lat: lat, lng: lng }, index);
-    if (this._drawMerc.length >= i + 2 && Number.isFinite(this._refMx)) {
-      this._drawMerc[i] = m.x - this._refMx;
-      this._drawMerc[i + 1] = m.y - this._refMy;
-      this.#uploadMercatorRange(i, 2);
-    } else {
-      this._bufferDirty = true;
-    }
+    // The new position is already in `_merc64`; the upload encodes it from there.
+    if (Number.isFinite(this._refMx)) this.#uploadMercatorRange(i, 2);
+    else this._bufferDirty = true;
     // Moving a point has to ask for a repaint, exactly as changing its colour or size does.
     // Without this the new coordinates sit in the GPU buffer and `render()` takes its
     // camera-unchanged shortcut, so positions only appeared the next time the camera moved.
@@ -448,7 +739,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     if (n <= 0) return this;
     if (this._pointPatchIndexScratch.length < n) this._pointPatchIndexScratch = new Uint32Array(n);
 
-    const pointCount = this.points.length / 2;
+    const pointCount = this._count / 2;
     const canUploadRanges = Number.isFinite(this._refMx);
     let dirtyCount = 0;
 
@@ -462,16 +753,11 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
       const slot = index * 2;
-      const m = projectMercator01(lat, lng);
-      this._latlngBuf[slot] = lat;
-      this._latlngBuf[slot + 1] = lng;
-      this._merc64[slot] = m.x;
-      this._merc64[slot + 1] = m.y;
+      this.#storePosition(slot, lat, lng);
       if (this.options.interactive) this._pickIndex.set(index, { lat, lng }, index);
 
-      if (canUploadRanges && this._drawMerc.length >= slot + 2) {
-        this._drawMerc[slot] = m.x - this._refMx;
-        this._drawMerc[slot + 1] = m.y - this._refMy;
+      if (canUploadRanges) {
+        // `_merc64` now holds the new position; the range upload encodes it.
         this._pointPatchIndexScratch[dirtyCount++] = index;
       } else {
         // No camera reference yet, so there is nothing to encode against: let the next render
@@ -482,7 +768,18 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
     if (dirtyCount > 0 && !this._bufferDirty) {
       const dirty = this._pointPatchIndexScratch.subarray(0, dirtyCount);
-      dirty.sort();
+      // #uploadPatchRanges needs ascending indices to coalesce runs, but callers that
+      // walk their data in order — the common case for an animation loop — already
+      // hand them over sorted. Checking costs a linear scan and skips an O(n log n)
+      // sort that was re-running every frame on up to a million indices.
+      let ascending = true;
+      for (let i = 1; i < dirtyCount; i++) {
+        if (dirty[i] < dirty[i - 1]) {
+          ascending = false;
+          break;
+        }
+      }
+      if (!ascending) dirty.sort();
       this.#uploadPatchRanges(dirty, pointCount, (start, points) =>
         this.#uploadMercatorRange(start * 2, points * 2)
       );
@@ -545,7 +842,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
     for (let i = 0; i < n; i++) {
       const index = Math.trunc(Number(indices[i]));
-      if (!Number.isFinite(index) || index < 0 || index >= this.points.length / 2) continue;
+      if (!Number.isFinite(index) || index < 0 || index >= this._count / 2) continue;
 
       let patched = false;
       if (colors && this._useVertexColor && index * 4 + 3 < this.colors.length && i * 4 + 3 < colors.length) {
@@ -590,37 +887,46 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
    * Used by ObjectManager filter restore / compact paths at 100k–1M.
    */
   setPackedData(
-    latlng: Float32Array,
-    merc64: Float64Array,
+    latlng: Float32Array | null,
+    merc64: MercatorBuffer,
     options: WebGLPointDataOptions = {}
   ): this {
-    const count = Math.min(latlng.length, merc64.length);
+    // `latlng` may be null: a non-interactive layer derives degrees from the mercator
+    // anyway, so requiring the caller to build and hold a second array forced 8 bytes
+    // per point on them for data neither side reads.
+    const count = latlng ? Math.min(latlng.length, merc64.length) : merc64.length;
     const even = count - (count % 2);
-    if (options.adopt) {
-      if (even === latlng.length && even === merc64.length) {
-        this._latlngBuf = latlng as Float32Array<ArrayBuffer>;
-        this._merc64 = merc64 as Float64Array<ArrayBuffer>;
+    // Degrees are only kept for an interactive layer, matching `setData()`. Holding
+    // them here as well cost 8 bytes per point for data nothing reads — a third of a
+    // million-point layer — when they can be derived from the mercator on demand.
+    const needLatLng = this.options.interactive;
+    // `adopt` can only keep a buffer whose element type matches this layer's
+    // `mercatorPrecision`; a mismatch falls through to the copying path below.
+    const keepLatLng = needLatLng && latlng !== null;
+    if (options.adopt && this.#mercMatches(merc64)) {
+      if (even === merc64.length && (!latlng || even === latlng.length)) {
+        this._latlngBuf = keepLatLng ? (latlng as Float32Array<ArrayBuffer>) : new Float32Array(0);
+        this._merc64 = merc64;
       } else {
-        this._latlngBuf = new Float32Array(even);
-        this._merc64 = new Float64Array(even);
-        this._latlngBuf.set(latlng.subarray(0, even));
+        this._latlngBuf = keepLatLng ? new Float32Array(even) : new Float32Array(0);
+        this._merc64 = this.#newMerc(even);
+        if (keepLatLng) this._latlngBuf.set(latlng!.subarray(0, even));
         this._merc64.set(merc64.subarray(0, even));
       }
-      if (this._drawMerc.length < even) this._drawMerc = new Float32Array(even);
       this._packedAdopted = true;
     } else {
       if (this._packedAdopted || this._latlngBuf.length < even) {
-        this._latlngBuf = new Float32Array(even);
-        this._merc64 = new Float64Array(even);
+        this._latlngBuf = keepLatLng ? new Float32Array(even) : new Float32Array(0);
+        this._merc64 = this.#newMerc(even);
         this._packedAdopted = false;
       }
-      if (this._drawMerc.length < even) this._drawMerc = new Float32Array(even);
-      this._latlngBuf.set(latlng.subarray(0, even));
+      if (keepLatLng) this._latlngBuf.set(latlng!.subarray(0, even));
       this._merc64.set(merc64.subarray(0, even));
     }
-    this.points = this._latlngBuf.subarray(0, even);
-    this.mercator = this._drawMerc.subarray(0, even);
+    this._count = even;
+    this._latlngValid = keepLatLng;
     this.pointData = [];
+    this.#enterMercatorMode();
     this.#applyColors(options.colors, even / 2);
     this.#applySizes(options.sizes, even / 2);
     this.#rebuildPickIndex();
@@ -631,13 +937,28 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     return this;
   }
 
-  /** Absolute float64 mercator pairs (same length as `points`). */
+  /**
+   * Absolute float64 mercator pairs (same length as `points`).
+   *
+   * Under `mercatorPrecision: "f32"` the layer has no float64 copy to hand back, so
+   * this widens into a new array instead of returning a view. Use `getMercatorAbs()`
+   * to read the stored buffer without that copy.
+   */
   getMercator64(): Float64Array {
-    return this._merc64.subarray(0, this.points.length);
+    this.#ensureMerc();
+    const stored = this._merc64.subarray(0, this._count);
+    return stored instanceof Float64Array ? stored : Float64Array.from(stored);
   }
 
+  /** Stored absolute mercator, in whichever precision this layer uses. No copy. */
+  getMercatorAbs(): MercatorBuffer {
+    this.#ensureMerc();
+    return this._merc64.subarray(0, this._count);
+  }
+
+  /** Packed lat/lng pairs, derived from the mercator buffer if not already stored. */
   getLatLngBuf(): Float32Array {
-    return this._latlngBuf.subarray(0, this.points.length);
+    return this.points;
   }
 
   /** Interleaved RGBA floats in 0..1 (converted from the packed GPU bytes). */
@@ -656,7 +977,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
   addData(points: Iterable<WebGLPointInput>): this {
     const existing: WebGLPointInput[] = [];
-    for (let i = 0; i < this.points.length; i += 2) {
+    for (let i = 0; i < this._count; i += 2) {
       existing.push({ lat: this.points[i], lng: this.points[i + 1] });
     }
     for (const item of points) existing.push(item);
@@ -664,16 +985,28 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   clear(): this {
-    this.points = new Float32Array();
-    this.mercator = new Float32Array();
+    this._count = 0;
+    this._latlngValid = true;
     this.colors = new Uint8Array();
     this.sizes = new Float32Array();
-    this._merc64 = new Float64Array(0);
-    this._drawMerc = new Float32Array(0);
+    this._merc64 = this.#newMerc(0);
+    this._stage = new Float32Array(0);
+    this._encodedCount = 0;
+    this.#enterMercatorMode();
     this._colorBuf = new Uint8Array(0);
     this._colorFloat = new Float32Array(0);
     this._sizeBuf = new Float32Array(0);
     this.pointData = [];
+    // Everything else that scales with the point count, so an emptied layer stops
+    // holding a dataset's worth of memory — `_latlngBuf` especially, which may be
+    // storage the caller lent us through `setPackedData(..., { adopt: true })`.
+    this._latlngBuf = new Float32Array(0);
+    this._packedAdopted = false;
+    this._scratch = new Float32Array(0);
+    this._scratchColors = new Float32Array(0);
+    this._stylePatchIndexScratch = new Uint32Array(0);
+    this._pointPatchIndexScratch = new Uint32Array(0);
+    this._pickIndex.clear();
     this._gpuMercBytes = 0;
     this._gpuColorBytes = 0;
     this._gpuSizeBytes = 0;
@@ -737,13 +1070,22 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   getStats(): WebGLPointLayerStats {
-    // Count used merc64 slots (not spare capacity from over-allocation on filtered inputs).
-    const merc64Bytes = this.points.length * Float64Array.BYTES_PER_ELEMENT;
+    // Count used mercator slots (not spare capacity from over-allocation on filtered
+    // inputs), at whatever `mercatorPrecision` this layer actually stores them in.
+    // Under GPU projection the mercator is derived and may not exist at all; what is always
+    // resident is the float64 degree store.
+    const merc64Bytes = (this._gpuProject ? Math.min(this._merc64.length, this._count) : this._count) * this._merc64.BYTES_PER_ELEMENT
+      + (this._gpuProject ? this._count * Float64Array.BYTES_PER_ELEMENT : 0);
+    // Degrees only cost anything once something has asked for them.
+    const latlngBytes = this._latlngValid ? this._count * Float32Array.BYTES_PER_ELEMENT : 0;
     return {
-      points: this.points.length / 2,
+      points: this._count / 2,
       rendered: this._lastRendered,
       renderer: this.renderer,
-      bufferBytes: this.points.byteLength + merc64Bytes + this.mercator.byteLength + this.colors.byteLength + this.sizes.byteLength,
+      // What the dataset itself costs. Camera-relative mercator is no longer stored
+      // per point — it is streamed to the GPU through a shared window capped at
+      // 256 KB, which is not counted here because it does not scale with the data.
+      bufferBytes: latlngBytes + merc64Bytes + this.colors.byteLength + this.sizes.byteLength,
       vertexColors: this._useVertexColor,
       vertexSizes: this._useVertexSize,
       pickIndex: this._pickIndex.size
@@ -765,7 +1107,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   override wantsFrameRender(): boolean {
-    return !this._hidden && this.points.length > 0;
+    return !this._hidden && this._count > 0;
   }
 
   override render(): void {
@@ -811,7 +1153,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       // stale surface unwarped — points visibly jump and snap back when the pass lands. While
       // the budget is spent, keep warping the exact frame we have even though it no longer
       // covers the viewport: briefly missing overdraw at the edges beats a moving picture.
-      const minInterval = this.points.length / 2 >= 250_000 ? 150 : 80;
+      const minInterval = this._count / 2 >= 250_000 ? 150 : 80;
       const throttled = !warpCovers && now - this._lastGpuMs < minInterval;
       if (warpCovers || throttled) {
         const s = 2 ** (zoom - this._paintedZoom);
@@ -852,7 +1194,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
   #overscanPad(cssW: number, cssH: number): number {
     if (this.renderer !== "webgl") return 0;
-    const count = this.points.length / 2;
+    const count = this._count / 2;
     if (count < 8_000) return 0;
     return Math.round(Math.min(280, Math.max(120, Math.min(cssW, cssH) * 0.24)));
   }
@@ -965,9 +1307,57 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       uniform float u_useVertexColor;
       uniform float u_useVertexSize;
       uniform vec4 u_color;
+      // When set, a_merc carries (dLng, dLat) in degrees against a reference the CPU
+      // subtracted in float64, and the mercator delta is computed here. u_refTan is
+      // tan(pi/4 + refLat/2), computed on the CPU in float64.
+      uniform float u_gpuProject;
+      uniform float u_refTan;
       varying vec4 v_color;
+
+      // log(1 + x) loses its leading digits for small x, which is the common case below.
+      // Eight alternating terms hold float32 accuracy over |x| < 0.25; log() covers the rest.
+      float log1p(float x) {
+        if (abs(x) < 0.25) {
+          float term = x;
+          float sum = 0.0;
+          for (int n = 1; n <= 8; n++) {
+            sum += term / float(n);
+            term *= -x;
+          }
+          return sum;
+        }
+        return log(1.0 + x);
+      }
+
+      // Mercator delta for a latitude offset, without ever forming two large mercator
+      // values and subtracting them. With T = tan(pi/4 + ref/2) and t = tan(d/2):
+      //   merc(ref + d) - merc(ref) = -(log1p(t/T) - log1p(-T*t)) / (2*pi)
+      // Both log arguments are near zero, so float32 keeps its relative precision.
+      // The GPU's tan() is not IEEE: for the ~1e-7 radian arguments a point a few pixels
+      // from the reference produces at zoom 20, it came back with an absolute error near
+      // 1e-6, which is forty pixels at latitude 84. Below a twentieth of a radian the
+      // series is exact to float32 in five terms; past that the offset is degrees wide
+      // and only reachable at zooms where a pixel is kilometres, so tan() is fine there.
+      float halfAngleTan(float x) {
+        if (abs(x) < 0.05) {
+          float x2 = x * x;
+          return x * (1.0 + x2 * (0.3333333333 + x2 * (0.1333333333 + x2 * 0.05396825397)));
+        }
+        return tan(x);
+      }
+
+      float mercDeltaY(float dLatDeg) {
+        float t = halfAngleTan(radians(dLatDeg) * 0.5);
+        float a = t / u_refTan;
+        float b = -u_refTan * t;
+        return -(log1p(a) - log1p(b)) / 6.283185307179586;
+      }
+
       void main() {
-        vec2 pixel = a_merc * u_scale - u_origin;
+        vec2 merc = u_gpuProject > 0.5
+          ? vec2(a_merc.x / 360.0, mercDeltaY(a_merc.y))
+          : a_merc;
+        vec2 pixel = merc * u_scale - u_origin;
         if (u_rotate != 0.0 || u_pitch != 1.0) {
           vec2 d = pixel - u_center;
           d.y *= u_pitch;
@@ -1028,7 +1418,9 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       uCenter: gl.getUniformLocation(this.program, "u_center"),
       uRotate: gl.getUniformLocation(this.program, "u_rotate"),
       uPitch: gl.getUniformLocation(this.program, "u_pitch"),
-      uRound: gl.getUniformLocation(this.program, "u_round")
+      uRound: gl.getUniformLocation(this.program, "u_round"),
+      uGpuProject: gl.getUniformLocation(this.program, "u_gpuProject"),
+      uRefTan: gl.getUniformLocation(this.program, "u_refTan")
     };
     this._bufferDirty = true;
     this._colorDirty = true;
@@ -1039,15 +1431,30 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     const gl = this.gl;
     if (!gl || !this.buffer || !this._bufferDirty) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    const bytes = this.mercator.byteLength;
+    const floats = this._count;
+    const bytes = floats * Float32Array.BYTES_PER_ELEMENT;
     // Reuse GPU storage on live updates — repeated bufferData(STATIC) leaks VRAM on some drivers.
-    if (bytes > 0 && bytes === this._gpuMercBytes) {
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.mercator);
-    } else {
-      gl.bufferData(gl.ARRAY_BUFFER, this.mercator, gl.DYNAMIC_DRAW);
+    if (bytes === 0 || bytes !== this._gpuMercBytes) {
+      // Allocate without data, then stream the contents in through the window.
+      gl.bufferData(gl.ARRAY_BUFFER, bytes, gl.DYNAMIC_DRAW);
       this._gpuMercBytes = bytes;
     }
+    if (bytes > 0) this.#streamMercator(gl, 0, floats);
     this._bufferDirty = false;
+  }
+
+  /** Encode `[floatOffset, floatOffset + floatCount)` window by window into the bound buffer. */
+  #streamMercator(gl: WebGLRenderingContext, floatOffset: number, floatCount: number): void {
+    const window = this.#stageWindow(floatCount);
+    for (let done = 0; done < floatCount; done += window.length) {
+      const chunk = Math.min(window.length, floatCount - done);
+      this.#encodeInto(window, 0, floatOffset + done, chunk);
+      gl.bufferSubData(
+        gl.ARRAY_BUFFER,
+        (floatOffset + done) * Float32Array.BYTES_PER_ELEMENT,
+        chunk === window.length ? window : window.subarray(0, chunk)
+      );
+    }
   }
 
   #uploadColorsIfNeeded(): void {
@@ -1093,16 +1500,12 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   #uploadMercatorRange(floatOffset: number, floatCount: number): void {
     const gl = this.gl;
     if (!gl || !this.buffer || floatCount <= 0) return;
-    if (this._gpuMercBytes !== this.mercator.byteLength) {
+    if (this._gpuMercBytes !== this._count * Float32Array.BYTES_PER_ELEMENT) {
       this._bufferDirty = true;
       return;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.bufferSubData(
-      gl.ARRAY_BUFFER,
-      floatOffset * 4,
-      this._drawMerc.subarray(floatOffset, floatOffset + floatCount)
-    );
+    this.#streamMercator(gl, floatOffset, floatCount);
   }
 
   #uploadColorRange(byteOffset: number, byteCount: number): void {
@@ -1229,12 +1632,11 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
    */
   #ensureRelativeEncoding(): void {
     if (!this.map) return;
-    const count = this.points.length;
+    const count = this._count;
     if (!count) {
-      this.mercator = this._drawMerc.subarray(0, 0);
+      this._encodedCount = 0;
       return;
     }
-    if (this._drawMerc.length < count) this._drawMerc = new Float32Array(count);
 
     const scale = TILE_SIZE * 2 ** this.map.zoom;
     const ox = this.map.pixelOrigin.x;
@@ -1243,23 +1645,19 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     const pixelDrift = Math.hypot(ox - this._refMx * scale, oy - this._refMy * scale);
     // float32 relative mercator stays sub-pixel accurate far beyond a few kpx of drift.
     const REENCODE_DRIFT_PX = 8192;
-    if (!this._bufferDirty && pixelDrift <= REENCODE_DRIFT_PX && this.mercator.length === count) {
+    if (!this._bufferDirty && pixelDrift <= REENCODE_DRIFT_PX && this._encodedCount === count) {
       return;
     }
 
     this._refMx = ox / scale;
     this._refMy = oy / scale;
+    this.#deriveDegreeReference();
     this._refZoom = this.map.zoom;
     this._refOriginX = ox;
     this._refOriginY = oy;
 
-    const src = this._merc64;
-    const dst = this._drawMerc;
-    for (let i = 0; i < count; i += 2) {
-      dst[i] = src[i] - this._refMx;
-      dst[i + 1] = src[i + 1] - this._refMy;
-    }
-    this.mercator = dst.subarray(0, count);
+    // Encoding itself happens during the upload, straight out of `_merc64`.
+    this._encodedCount = count;
     this._bufferDirty = true;
   }
 
@@ -1276,7 +1674,8 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   #projectVisibleCanvas(dpr: number): { xy: Float32Array; indices: Int32Array } {
-    if (!this.map || !this.points.length) {
+    this.#ensureMerc();
+    if (!this.map || !this._count) {
       this._lastRendered = 0;
       return { xy: new Float32Array(), indices: new Int32Array() };
     }
@@ -1289,7 +1688,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     const height = map.size.height;
     const padding = (this._useVertexSize ? Math.max(this.options.pointSize, this._maxVertexSize) : this.options.pointSize) + 2;
     const source = this._merc64;
-    const needed = this.points.length;
+    const needed = this._count;
     if (this._scratch.length < needed) this._scratch = new Float32Array(needed);
     const indexBuf = this._scratchColors.length >= needed
       ? this._scratchColors
@@ -1378,8 +1777,10 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   #rebuildPickIndex(): void {
     this._pickIndex.clear();
     if (!this.options.interactive) return;
-    const pts = this.points;
-    const n = pts.length;
+    // Under GPU projection the float64 degrees are right there; going through the
+    // `points` getter would narrow them to float32 for nothing.
+    const pts: ArrayLike<number> = this._gpuProject ? this._latlng64 : this.points;
+    const n = this._count;
     for (let i = 0; i < n; i += 2) this._pickIndex.set(i / 2, { lat: pts[i], lng: pts[i + 1] }, i / 2);
   }
 
@@ -1388,7 +1789,8 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     latlng: LatLngLike;
     containerPoint: { x: number; y: number };
   } | null {
-    if (!this.map || !this.points.length) return null;
+    this.#ensureMerc();
+    if (!this.map || !this._count) return null;
     const rect = this.map.container.getBoundingClientRect();
     const targetX = clientX - rect.left;
     const targetY = clientY - rect.top;
@@ -1405,7 +1807,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     let nearestDistance = maxDistance;
     let nearestPoint = { x: 0, y: 0 };
     const merc = this._merc64;
-    const count = this.points.length;
+    const count = this._count;
     const pointCount = count / 2;
     const rotated = this.options.rotation !== 0 || this.options.pitch !== 0;
     const consider = (index: number, point: { x: number; y: number }): void => {
@@ -1445,7 +1847,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     const locs = this._glLocations;
     if (!gl || !this.program || !this.buffer || !this.canvas || !locs || !this.map) return;
 
-    const count = this.points.length / 2;
+    const count = this._count / 2;
     this._lastRendered = count;
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -1490,6 +1892,8 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
     gl.uniform1f(locs.uScale, scale);
     gl.uniform2f(locs.uOrigin, originX, originY);
+    gl.uniform1f(locs.uGpuProject, this._gpuProject ? 1 : 0);
+    gl.uniform1f(locs.uRefTan, this._refTan);
     gl.uniform2f(locs.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(locs.uDpr, dpr);
     gl.uniform1f(locs.uPointSize, this.options.pointSize);
@@ -1561,10 +1965,67 @@ function normalizePoint(value: WebGLPointInput): { lat: number; lng: number } | 
     ? value as LatLngLike
     : (value as { coordinates?: LatLngLike; latlng?: LatLngLike }).coordinates ?? (value as { latlng?: LatLngLike }).latlng;
   if (!source) return null;
-  if (!Array.isArray(source) && (!Number.isFinite(source.lat) || !Number.isFinite(source.lng))) return null;
-  const point = latLng(source);
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
-  return point;
+  // Tuples stay ambiguous and `latLng()` is what rejects them; keep that contract.
+  if (Array.isArray(source)) return latLng(source as never);
+  if (!Number.isFinite(source.lat) || !Number.isFinite(source.lng)) return null;
+  // Coordinates are already validated, and every caller only reads `.lat` / `.lng`.
+  // Building a LatLng here allocated one object per point — a million of them for a
+  // million-point ingest, and unlike a short-lived temporary this one escapes, so
+  // the engine cannot optimise it away.
+  return source;
+}
+
+/**
+ * Growable lat/lng + absolute-mercator store for sources whose length is not known
+ * up front (generators, `Set`, async iterables).
+ *
+ * The straightforward version stages coordinates in plain `number[]` and converts
+ * once at the end, which costs 8 bytes per coordinate in boxed storage on top of
+ * the typed arrays it is about to build — at a million points that is tens of
+ * megabytes of garbage plus the churn of growing two arrays by doubling. Doubling
+ * the typed arrays directly keeps one copy of the data instead of two.
+ */
+class PointPairStore {
+  /** Degrees in float64, lat then lng; the layer projects these on the GPU. */
+  latlng64: Float64Array;
+  /** Floats written so far; two per point. */
+  length = 0;
+
+  constructor(pairHint = 0) {
+    this.latlng64 = new Float64Array(Math.max(1024, Math.ceil(pairHint) * 2));
+  }
+
+  push(lat: number, lng: number): void {
+    if (this.length + 2 > this.latlng64.length) this.#grow();
+    this.latlng64[this.length] = lat;
+    this.latlng64[this.length + 1] = lng;
+    this.length += 2;
+  }
+
+  #grow(): void {
+    const next = new Float64Array(this.latlng64.length * 2);
+    next.set(this.latlng64);
+    this.latlng64 = next;
+  }
+
+  /**
+   * A buffer sized to what was actually written. Doubling can leave up to half the
+   * capacity unused, and a subarray would pin the whole parent buffer anyway, so a
+   * wasteful tail is worth one copy — a snug one is not.
+   */
+  take(): Float64Array<ArrayBufferLike> {
+    const spare = this.latlng64.length - this.length;
+    return spare === 0 || spare <= this.length / 4
+      ? this.latlng64.subarray(0, this.length)
+      : this.latlng64.slice(0, this.length);
+  }
+}
+
+/** Element count when an iterable happens to expose one; 0 when it does not. */
+function sizeHintOf(value: unknown): number {
+  const sized = value as { length?: unknown; size?: unknown };
+  const hint = typeof sized?.length === "number" ? sized.length : sized?.size;
+  return typeof hint === "number" && Number.isFinite(hint) && hint > 0 ? hint : 0;
 }
 
 function normalizePointSize(value: unknown, fallback: number): number {
