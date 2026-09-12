@@ -32,6 +32,26 @@ export interface WebGLPointDataOptions {
 
 export interface WebGLPointAsyncDataOptions extends WebGLPointDataOptions, AsyncBatchOptions {}
 
+/** Absolute mercator storage; float32 halves it at the cost of high-zoom precision. */
+export type MercatorBuffer = Float64Array | Float32Array;
+
+/**
+ * Precomputed absolute mercator buffers for {@link WebGLPointLayer.load} /
+ * {@link WebGLPointLayer.setPackedData}.
+ */
+export interface WebGLPointPackedInput {
+  /** Interleaved lat/lng degrees; optional when the layer is not interactive. */
+  latlng?: Float32Array | null;
+  /** Absolute 0..1 mercator, interleaved x/y. */
+  mercator: MercatorBuffer;
+}
+
+/** Input accepted by the recommended {@link WebGLPointLayer.load} ingest path. */
+export type WebGLPointLoadInput =
+  | Iterable<WebGLPointInput>
+  | AsyncIterable<WebGLPointInput>
+  | WebGLPointPackedInput;
+
 export interface WebGLPointLayerOptions extends LayerOptions {
   pointSize?: number;
   color?: string;
@@ -63,9 +83,6 @@ export interface WebGLPointLayerOptions extends LayerOptions {
    */
   mercatorPrecision?: "f64" | "f32";
 }
-
-/** Absolute mercator storage; float32 halves it at the cost of high-zoom precision. */
-export type MercatorBuffer = Float64Array | Float32Array;
 
 type ResolvedWebGLPointLayerOptions = Required<WebGLPointLayerOptions>;
 
@@ -111,6 +128,12 @@ export interface WebGLPointEventMap {
  * costs far more than the packed buffers they sit beside.
  */
 const SOURCE_RETENTION_MAX = 40_000;
+
+/**
+ * Arrays at or above this size take the cooperative async path from `load()`,
+ * matching the default `chunkSize` of `setDataAsync`.
+ */
+const LOAD_ASYNC_THRESHOLD = 50_000;
 
 /** Upload window for camera-relative mercator: 64k floats, one 256 KB buffer. */
 const STAGE_FLOATS = 65_536;
@@ -231,6 +254,10 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   private _lastGpuMs = 0;
   private _settleTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Creates a point layer. Initial `points` are applied synchronously via `setData`.
+   * For large, streaming, or pre-packed sources prefer {@link load} after construction.
+   */
   constructor(points: Iterable<WebGLPointInput> = [], options: WebGLPointLayerOptions = {}) {
     super({
       pane: "overlay",
@@ -484,6 +511,44 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       : buffer instanceof Float64Array;
   }
 
+  /**
+   * Recommended ingest path. Routes to `setData`, `setDataAsync`, or `setPackedData`
+   * from the input shape and size so callers do not have to pick an expert path.
+   * Always returns a Promise so large and small loads share one `await` call site.
+   */
+  async load(points: WebGLPointLoadInput, options: WebGLPointAsyncDataOptions = {}): Promise<this> {
+    if (isPackedPointInput(points)) {
+      const packed: WebGLPointDataOptions = {
+        colors: options.colors,
+        sizes: options.sizes,
+        adopt: options.adopt !== false
+      };
+      this.setPackedData(points.latlng ?? null, points.mercator, packed);
+      return this;
+    }
+    if (isAsyncIterable<WebGLPointInput>(points)) {
+      return this.setDataAsync(points, options);
+    }
+    if (Array.isArray(points)) {
+      if (points.length >= LOAD_ASYNC_THRESHOLD) return this.setDataAsync(points, options);
+      this.setData(points, options);
+      return this;
+    }
+    // Sync iterables without a reliable length (generators, custom iterators) may be
+    // huge; cooperative ingest keeps the main thread responsive the same way a large
+    // array does. Sized collections with a known short length stay on the sync path.
+    const hint = sizeHintOf(points);
+    if (hint > 0 && hint < LOAD_ASYNC_THRESHOLD) {
+      this.setData(points, options);
+      return this;
+    }
+    return this.setDataAsync(points, options);
+  }
+
+  /**
+   * Expert API — prefer {@link load}. Synchronously replace the dataset from
+   * degree / object inputs (GPU-projected float64 degrees).
+   */
   setData(points: Iterable<WebGLPointInput>, options: WebGLPointDataOptions = {}): this {
     // Arrays can be checked outright; an iterable is provisional and the loop below
     // stops retaining as soon as it passes the cap.
@@ -573,8 +638,8 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   /**
-   * Project and pack a large point iterable across bounded main-thread tasks,
-   * then replace the live GPU dataset atomically.
+   * Expert API — prefer {@link load}. Project and pack a large point iterable
+   * across bounded main-thread tasks, then replace the live GPU dataset atomically.
    */
   async setDataAsync(
     points: Iterable<WebGLPointInput> | AsyncIterable<WebGLPointInput>,
@@ -883,6 +948,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 
   /**
+   * Expert API — prefer {@link load} with a {@link WebGLPointPackedInput} object.
    * Load precomputed lat/lng + absolute mercator buffers (skips normalize + merc encode).
    * Used by ObjectManager filter restore / compact paths at 100k–1M.
    */
@@ -1956,8 +2022,19 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   }
 }
 
+/**
+ * Create a {@link WebGLPointLayer}. Initial points are applied synchronously;
+ * for large, streaming, or packed sources call {@link WebGLPointLayer.load} after.
+ */
 export function webglPointLayer(points?: Iterable<WebGLPointInput>, options?: WebGLPointLayerOptions): WebGLPointLayer {
   return new WebGLPointLayer(points, options);
+}
+
+/** True when `value` is a packed mercator hand-off for {@link WebGLPointLayer.load}. */
+function isPackedPointInput(value: unknown): value is WebGLPointPackedInput {
+  if (!value || typeof value !== "object") return false;
+  const mercator = (value as WebGLPointPackedInput).mercator;
+  return mercator instanceof Float64Array || mercator instanceof Float32Array;
 }
 
 function normalizePoint(value: WebGLPointInput): { lat: number; lng: number } | null {

@@ -192,7 +192,7 @@ export type { TrafficLayerOptions, TrafficState, TrafficEventMap } from "./servi
 export type { SearchAdapter, SearchContext, SearchResult, SearchProviderSource, SearchProviderOptions, SearchProviderConfig, ReverseFallback } from "./services/search.js";
 export type { RouteResult, RouteWaypoint, RoutingContext, RoutingLayerOptions, RoutingProvider, RoutingEventMap } from "./services/routing.js";
 export type { SuggestOptions, SuggestContext, SuggestFetcher, SuggestWidgetOptions, SuggestWidgetEventMap } from "./services/suggest.js";
-export type { WebGLPointInput, WebGLPointDataOptions, WebGLPointAsyncDataOptions, WebGLPointLayerOptions, WebGLPointLayerStats, WebGLPointEventMap } from "./layers/webgl-point-layer.js";
+export type { WebGLPointInput, WebGLPointDataOptions, WebGLPointAsyncDataOptions, WebGLPointPackedInput, WebGLPointLoadInput, MercatorBuffer, WebGLPointLayerOptions, WebGLPointLayerStats, WebGLPointEventMap } from "./layers/webgl-point-layer.js";
 export type { WebGLSymbolInstance, WebGLSymbolLayerOptions, WebGLSymbolEventMap } from "./layers/webgl-symbol-layer.js";
 export type { StyledPathInput, StyledPathStyle, WebGLStyledPathBatchOptions } from "./layers/webgl-styled-path-batch.js";
 export type { PathBatch, PathBatchMode, PathBatchOptions, UniformPathBatchOptions, FeaturePathBatchOptions } from "./layers/path-batch.js";

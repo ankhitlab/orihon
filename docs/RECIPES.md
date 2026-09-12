@@ -58,40 +58,45 @@ first time a style resolver, a registered icon, declutter or a line/polygon need
 At mass scale the cost moves from drawing to allocating. `webglPointLayer` stores points in
 packed typed arrays, so the fastest paths are the ones that never build an object per point.
 
-Load large sources with `setDataAsync()`. It packs degrees across bounded main-thread tasks and
-swaps the GPU snapshot atomically, so the map stays responsive while it ingests. Nothing is
-projected on the way in: data that arrives as degrees stays float64 degrees and is projected in
-the vertex shader, so moving a point later costs two stores rather than a sine and a logarithm.
+Use `load()` — the recommended ingest. It picks sync, cooperative async, or packed hand-off
+from the input shape and size, so you do not choose between `setData`, `setDataAsync` and
+`setPackedData`. Degree inputs stay float64 degrees and are projected in the vertex shader;
+moving a point later costs two stores rather than a sine and a logarithm.
 
 ```js
-await density.setDataAsync(points, { chunkSize: 50_000, yieldMode: "task" });
+await density.load(points);
 ```
 
 `points` may be an array, a generator or an async iterable — a generator avoids materialising
-the whole dataset at once.
+the whole dataset at once. Arrays of 50,000+ points and unsized iterables take the async path
+automatically; smaller arrays stay synchronous under the same `await`.
 
-If you already hold packed buffers — from a worker, a fetch, or your own store — hand them over
-directly with `setPackedData()`. `projectMercator01()` produces the absolute mercator it expects:
+If you already hold packed buffers — from a worker, a fetch, or your own store — pass them as
+an object. `load` adopts by default (zero-copy); do not reuse those arrays afterwards:
 
 ```js
 import { projectMercator01 } from "orihon/geo";
 
 const latlng = new Float32Array(count * 2);
-const merc = new Float64Array(count * 2);
+const mercator = new Float64Array(count * 2);
 for (let i = 0; i < count; i++) {
   const { lat, lng } = source[i];
   const m = projectMercator01(lat, lng);
   latlng[i * 2] = lat;
   latlng[i * 2 + 1] = lng;
-  merc[i * 2] = m.x;
-  merc[i * 2 + 1] = m.y;
+  mercator[i * 2] = m.x;
+  mercator[i * 2 + 1] = m.y;
 }
 
-density.setPackedData(latlng, merc, { adopt: true });
+await density.load({ latlng, mercator });
 ```
 
-`adopt` takes ownership without copying, so do not reuse those arrays for anything else
-afterwards — the layer is now reading and writing them.
+### Expert ingest
+
+`setData`, `setDataAsync` and `setPackedData` remain available when you need an explicit path.
+`setPackedData(latlng, merc, { adopt: true })` is the positional form of the packed object above;
+`adopt` defaults to `false` there for safety. Pass `{ adopt: false }` to `load` if you must keep
+ownership of the buffers.
 
 Packed data is stored and drawn as absolute mercator, 16 bytes per point by default. Datasets
 that never go past roughly zoom 16 can halve that:
@@ -121,13 +126,14 @@ function onTelemetry(update) {
 }
 ```
 
-Reusing both arrays every frame is the point. Calling `setData()` on each tick allocates an
-object per point per tick, which at a million points is the difference between a live feed and
-a stalled one.
+Reusing both arrays every frame is the point. Calling `setData()` / `load()` on each tick
+allocates an object per point per tick, which at a million points is the difference between a
+live feed and a stalled one.
 
 Positions are patched in place, so anything still holding a buffer handed over with
-`setPackedData(..., { adopt: true })` sees the same update — that is how `objectManager` keeps a
-single set of arrays shared with its layer instead of copying them.
+`load({ latlng, mercator })` or `setPackedData(..., { adopt: true })` sees the same update —
+that is how `objectManager` keeps a single set of arrays shared with its layer instead of
+copying them.
 
 With `interactive: true` the layer also keeps your source objects so `click` and `hover` can
 hand them back, but only up to 40,000 points. Past that it keeps the packed buffers alone and

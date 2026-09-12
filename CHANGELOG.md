@@ -4,6 +4,10 @@
 
 ## 2.1.0 — 2026-09-12
 
+- **WebGL points: recommended `load()`.** `WebGLPointLayer.load()` routes degree arrays,
+  async iterables and packed `{ latlng, mercator }` buffers to the right ingest path, so
+  callers no longer choose between `setData`, `setDataAsync` and `setPackedData`. Those
+  methods stay as expert API. Packed loads through `load` adopt by default.
 - **WebGL points project on the GPU.** Data that arrives as degrees is kept as float64
   degrees and projected in the vertex shader from small offsets against a camera reference,
   with the mercator derived only when something on the CPU asks for it. Moving a point costs

@@ -307,3 +307,87 @@ test("replacing an iterable dataset with a smaller one reports the new length", 
   assert.equal(layer.getLatLngBuf().length, 100);
   assert.equal(layer.getMercator64().length, 100);
 });
+
+/* --------------------------------------------------------------- load() router - */
+
+test("load packs a small array the same way as setData", async () => {
+  const points = makePoints(200);
+  const viaSet = webglPointLayer(points, { interactive: false });
+  const viaLoad = webglPointLayer([], { interactive: false });
+  await viaLoad.load(points);
+
+  assert.deepEqual(Array.from(viaLoad.points), Array.from(viaSet.points));
+  assert.deepEqual(Array.from(viaLoad.getMercator64()), Array.from(viaSet.getMercator64()));
+});
+
+test("load routes a large array through cooperative ingest", async () => {
+  const points = makePoints(50_000);
+  const layer = webglPointLayer([], { interactive: false });
+  let progressCalls = 0;
+  await layer.load(points, {
+    chunkSize: 10_000,
+    onProgress: () => {
+      progressCalls++;
+    }
+  });
+
+  assert.equal(layer.points.length, 100_000);
+  assert.ok(progressCalls >= 2, "large load should report progress more than once");
+});
+
+test("load adopts packed mercator buffers by default", async () => {
+  const owned = pack(makePoints(100));
+  const layer = webglPointLayer([], { interactive: false });
+  await layer.load({ latlng: owned.latlng, mercator: owned.merc64 });
+
+  assert.equal(
+    layer.getMercatorAbs().buffer,
+    owned.merc64.buffer,
+    "load adopts zero-copy by default"
+  );
+  assert.equal(layer.points.length, 200);
+
+  // Replacing the dataset must not overwrite the caller's adopted storage.
+  const mercCopy = Float64Array.from(owned.merc64);
+  layer.setData(makePoints(10));
+  assert.deepEqual(Array.from(owned.merc64), Array.from(mercCopy));
+});
+
+test("load respects adopt: false for packed buffers", async () => {
+  const owned = pack(makePoints(100));
+  const layer = webglPointLayer([], { interactive: false });
+  await layer.load({ latlng: owned.latlng, mercator: owned.merc64 }, { adopt: false });
+
+  assert.notEqual(layer.getMercatorAbs().buffer, owned.merc64.buffer);
+  assert.deepEqual(Array.from(layer.getMercatorAbs()), Array.from(owned.merc64));
+});
+
+test("load accepts an async iterable", async () => {
+  const points = makePoints(500);
+  async function* stream() {
+    for (const point of points) yield point;
+  }
+  const layer = webglPointLayer([], { interactive: false });
+  await layer.load(stream(), { chunkSize: 100 });
+
+  assert.equal(layer.points.length, 1000);
+  assert.deepEqual(
+    Array.from(layer.points),
+    Array.from(webglPointLayer(points, { interactive: false }).points)
+  );
+});
+
+test("load routes an unsized generator through async ingest", async () => {
+  const points = makePoints(800);
+  const layer = webglPointLayer([], { interactive: false });
+  let progressCalls = 0;
+  await layer.load(iterate(points), {
+    chunkSize: 200,
+    onProgress: () => {
+      progressCalls++;
+    }
+  });
+
+  assert.equal(layer.points.length, 1600);
+  assert.ok(progressCalls >= 2, "unsized iterables take the cooperative path");
+});
