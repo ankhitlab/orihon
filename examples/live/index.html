@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orihon Maps — a browser map engine you can read end to end</title>
+    <meta
+      name="description"
+      content="Orihon is a free, Apache-2.0 browser map engine: a 16 KiB core, a typed API, and a path to a million objects on the GPU without changing libraries."
+    />
+    <link rel="icon" href="./assets/brand/orihon-favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/site.css" />
+    <script src="./assets/boot.js" data-entry="./home.js"></script>
+  </head>
+
+  <body>
+    <header class="site-head">
+      <div class="wrap">
+        <a class="brand" href="./index.html">
+          <img src="./assets/brand/orihon-mark.svg" alt="" width="44" height="24" />
+          <span>Orihon</span>
+        </a>
+        <nav class="nav">
+          <a href="#demos">Demos</a>
+          <a href="#bench">Benchmarks</a>
+          <a href="#ai">AI</a>
+          <a class="hide-sm" href="#size">Size</a>
+          <a class="hide-sm" href="https://github.com/whahedev/orihon#readme">Docs</a>
+          <a class="hide-sm" href="https://github.com/whahedev/orihon">GitHub</a>
+          <span data-slot="theme"></span>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="wrap">
+        <section class="hero">
+          <div>
+            <p class="eyebrow">Apache-2.0 · no engine key · no license server</p>
+            <h1>A browser map engine you can read end to end.</h1>
+            <p class="lede">
+              Orihon starts at a 16&nbsp;KiB core and goes to a million application objects on
+              the GPU without swapping libraries halfway through the project. Strict
+              TypeScript, one options object per call, units in the names, and a size budget
+              that fails the build when it slips.
+            </p>
+
+            <div class="install">
+              <span class="prompt">$</span>
+              <code>npm i orihon</code>
+              <button type="button" data-copy="npm i orihon">copy</button>
+            </div>
+
+            <div class="install">
+              <span class="prompt">$</span>
+              <code>npm create orihon-app my-map</code>
+              <button type="button" data-copy="npm create orihon-app my-map">copy</button>
+            </div>
+
+            <p class="install-note">
+              Starting from nothing? The second command writes a project that already draws a
+              map, with the stylesheet, a sized container, attribution and one sample of every
+              Easy overlay in place. Templates: <code>vanilla</code>, <code>vanilla-ts</code>,
+              <code>react</code>, <code>react-ts</code>, <code>cdn</code>.
+            </p>
+
+            <div class="cta">
+              <a class="btn btn-primary" href="./demos/first-map/index.html">Open the playground</a>
+              <a class="btn btn-ghost" href="./demos/scale/index.html">See a million objects</a>
+            </div>
+          </div>
+
+          <div class="hero-panel">
+            <div class="hero-map" id="hero-map"></div>
+            <div data-slot="hero-code"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="strip wrap" style="text-align: center">
+        <div><b data-slot="size-core">—</b><span>core, gzip</span></div>
+        <div><b data-slot="size-standard">—</b><span>standard, gzip</span></div>
+        <div><b>0</b><span>runtime dependencies</span></div>
+        <div><b>100%</b><span>TypeScript, declarations shipped</span></div>
+      </div>
+
+      <div class="wrap">
+        <section id="why">
+          <div class="section-head">
+            <h2>What you get for reading one page of docs</h2>
+            <p>
+              The parts of an API that decide whether you enjoy the next six months are small,
+              boring and mostly about naming. Orihon spends its budget there.
+            </p>
+          </div>
+
+          <div class="cards">
+            <div class="card">
+              <h3>Two sentences, not five</h3>
+              <p>
+                <code>map.addMarker({ … })</code> for ordinary application work,
+                <code>marker(position).addTo(map)</code> when you compose layers yourself.
+                There is no third generic <code>map.add({ type })</code> dialect and no
+                positional Easy overloads to memorise.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Units live in the names</h3>
+              <p>
+                <code>radiusPixels</code>, <code>radiusMeters</code>, <code>durationMs</code>.
+                Coordinates are <code>{ lat, lng }</code>, so a bare tuple can never silently
+                swap the two — and <code>latLng()</code>, <code>lngLat()</code> and
+                <code>fromGeoJSONPosition()</code> name the order when you convert.
+              </p>
+            </div>
+            <div class="card">
+              <h3>You choose what ships</h3>
+              <p>
+                Core, Standard and Advanced describe capability, and the ObjectManager sits on
+                top of Advanced because that is where the WebGL it needs already lives. Draw
+                tools, controls, locales and React are separate opt-ins that add single-digit
+                kilobytes. <code>npm run size</code> fails the build when a published artifact
+                crosses its budget, so the numbers below are enforced rather than aspirational.
+              </p>
+            </div>
+            <div class="card">
+              <h3>GPU is a decision you make</h3>
+              <p>
+                <code>renderer: "auto"</code> prefers WebGPU, then WebGL, then DOM.
+                <code>renderer: "webgl"</code> is a requirement: unsupported hardware throws
+                <code>UnsupportedCapabilityError</code> instead of quietly profiling as a DOM
+                path in production.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Typed all the way down</h3>
+              <p>
+                Declarations are generated for every entry point. Events are typed by name and
+                payload, cancellation is <code>AbortSignal</code>, teardown is an idempotent
+                <code>destroy()</code>, and calls after it throw <code>DestroyedError</code>
+                rather than pretending to be cancelled.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Your data has one home</h3>
+              <p>
+                <code>FeatureSource</code> is a versioned store that feeds GeoJSON layers,
+                labels and high-volume rendering at once. Map state and application state
+                cannot drift apart, because there is only one copy.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Nine languages in the shipped UI</h3>
+              <p>
+                English plus <code>ru</code>, <code>ar</code>, <code>tr</code>,
+                <code>zh</code>, <code>de</code>, <code>fr</code>, <code>da</code>,
+                <code>hi</code> — zoom, scale, layers, geolocation, popups, the draw toolbar
+                and fullscreen. <code>map.setLocale("ru")</code> relabels live controls,
+                <code>ar</code> sets RTL, and the packs are a separate 2&nbsp;KiB import an
+                English-only app never downloads.
+              </p>
+            </div>
+            <div class="card">
+              <h3>It speaks to the GIS you already run</h3>
+              <p>
+                <code>wmsTileLayer()</code> and <code>wmtsTileLayer()</code> for the servers
+                you have, <code>createWMTSFromCapabilities()</code> to configure one straight
+                from its capabilities document, <code>orihon/mvt</code>,
+                <code>orihon/pmtiles</code> and <code>orihon/mlt</code> for packed vector
+                tiles, and <code>offlineTileCache()</code> for the field. No provider is
+                compiled in — a basemap is a template string.
+              </p>
+            </div>
+            <div class="card">
+              <h3>An agent can drive it safely</h3>
+              <p>
+                With <code>orihon/ai</code> a model states a <em>goal</em> — not map calls, not
+                route geometry. The runtime compiles it against a capability registry, previews
+                every step on a private engine fork, and commits one revision; a route stays
+                reactive afterwards, so removing a stop recalculates the rest with no second
+                model call. Bad input comes back as
+                <code>{ code, path, message }</code> instead of a half-applied map.
+                <a href="#ai">See how it works ↓</a>
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="demos">
+          <div class="section-head">
+            <h2>Demos that show the code that made them</h2>
+            <p>
+              Every page below loads its own <code>map.js</code> as text and prints it in the
+              panel. What you read is what ran, with the same package specifiers you would
+              write — copy it into a project unchanged.
+            </p>
+          </div>
+          <div class="cards" data-slot="gallery"></div>
+        </section>
+
+        <section id="size">
+          <div class="section-head">
+            <h2>Every byte accounted for</h2>
+            <p>
+              Measured gzip sizes of the published bundles for
+              <code data-slot="version">orihon</code>. Every row is what the browser
+              actually downloads to reach that point, and they are cumulative: Standard
+              contains Core, Advanced contains Standard. Everything else — React bindings,
+              draw tools, extra locales, the controls pack — is a separate import that adds
+              a few kilobytes on top, and a map that never uses it never downloads it.
+            </p>
+          </div>
+          <div class="scroll-x"><table class="sizes">
+            <thead>
+              <tr>
+                <th>Entry point</th>
+                <th style="width: 34%"></th>
+                <th style="text-align: right">gzip</th>
+                <th>What it carries</th>
+              </tr>
+            </thead>
+            <tbody data-slot="sizes"></tbody>
+          </table></div>
+          <p class="note" style="margin-top: 1rem">
+            For scale: Leaflet 1.9.4 ships about 42&nbsp;KiB gzip, and it does not include
+            GPU rendering, vector tiles or a large-object manager.
+          </p>
+        </section>
+
+        <section id="bench">
+          <div class="section-head">
+            <h2>Measured against the maps you already know</h2>
+            <p>
+              The same generated points, the same machine, sequential runs, through Orihon,
+              Leaflet, OpenLayers and MapLibre. Pick a kind of check below; every cell holds
+              both dataset sizes, small first. The harness lives in the repository and exports
+              the raw JSON these tables are generated from.
+            </p>
+          </div>
+
+          <div class="switch" data-slot="bench-switch"></div>
+          <div class="scroll-x"><table class="cmp" data-slot="bench-table"></table></div>
+
+          <p class="foot-note" data-slot="bench-note"></p>
+
+          <div class="cta" style="margin-top: 1.3rem">
+            <a class="btn btn-primary" href="https://whahedev.github.io/orihon/bench/">Run the benchmark yourself</a>
+            <a class="btn btn-ghost" href="https://github.com/whahedev/orihon/tree/main/examples/bench-compare">Harness source</a>
+          </div>
+
+          <p class="foot-note">
+            Eight more scenarios beyond these six — isolines, heat plus isolines, DOM markers,
+            chart popups, filtering, the combined ObjectManager stress, basemap and tile scroll
+            — plus every count from 50 to a million and a JSON export. The numbers above come
+            from one machine; the point of shipping the harness is that you do not have to take
+            them on faith.
+          </p>
+        </section>
+
+        <section id="ai">
+          <div class="section-head">
+            <p class="eyebrow">orihon/ai</p>
+            <h2>Agent-native maps</h2>
+            <p>
+              A separate entry point that exposes the map as a safe, stateful tool
+              environment for an LLM or an agent — not a websocket that forwards tool calls.
+              The model states one <em>goal</em>; the runtime compiles it against a capability
+              registry, previews every step on a private engine fork, and commits the whole
+              thing as one revision. It owns only what it created.
+            </p>
+            <p style="margin-top: 0.9rem">
+              <span class="pill">On <code style="font-size: 0.92em">main</code>, not in 2.0.1 yet</span>
+            </p>
+            <p class="foot-note" style="margin-top: 0.7rem">
+              This one is not in the published package: <code>npm i orihon</code> gives you
+              2.0.1, which has no <code>./ai</code> export. Read it on GitHub, or install from
+              the repository, until it ships in a release.
+            </p>
+          </div>
+
+          <div class="split-two">
+            <div class="cards" style="grid-template-columns: minmax(0, 1fr)">
+              <div class="card">
+                <h3>Goals, not map calls</h3>
+                <p>
+                  <code>create_visit_route</code> carries places and route constraints — not a
+                  precomputed route. The runtime compiles it into
+                  <code>object-manager → route-model</code>, and the route stays
+                  <strong>reactive</strong>: remove a stop later and the remaining ones are
+                  recalculated without another model call.
+                </p>
+              </div>
+              <div class="card">
+                <h3>Repairable, never half-applied</h3>
+                <p>
+                  Bad input never throws — it comes back as
+                  <code>{ ok: false, error: { code, path, message, received } }</code> with the
+                  path naming the offending field, which is what an agent needs to fix its own
+                  output. A rejected intent commits nothing. Schemas ship as
+                  <code>orihon/schema/scene-v1.json</code>.
+                </p>
+              </div>
+              <div class="card">
+                <h3>Sessions, not a global map</h3>
+                <p>
+                  <code>createAIAgentSession({ id, engine })</code> is user-scoped: its own
+                  revision, capability allowlist and local UI state. Clearing an AI session
+                  resets what the agent made and leaves your own layers alone.
+                </p>
+              </div>
+              <div class="card">
+                <h3>The adapters you already use</h3>
+                <p>
+                  One tool vocabulary from <code>listAISessionTools()</code>, exposed through
+                  WebMCP (<code>installAIWebMCPTools</code>), AG-UI
+                  (<code>createAIAGUIAdapter</code>), an HTTP/SSE handler
+                  (<code>createAIHTTPHandler</code>) and an OpenAI-compatible LLM adapter.
+                  No second dialect to learn.
+                </p>
+              </div>
+            </div>
+            <div data-slot="ai-code"></div>
+          </div>
+
+          <div class="cta" style="margin-top: 1.3rem">
+            <a class="btn btn-primary" href="./demos/ai-places/index.html">Replay an agent's intent</a>
+            <a class="btn btn-ghost" href="https://github.com/whahedev/orihon/blob/main/docs/AI.md">AI API reference</a>
+            <a class="btn btn-ghost" href="https://github.com/whahedev/orihon/blob/main/docs/AI_SESSIONS.md">Agent sessions</a>
+          </div>
+        </section>
+
+        <section id="api">
+          <div class="section-head">
+            <h2>The same map, three ways</h2>
+            <p>
+              Nothing here is a wrapper over anything else at run time — Easy returns the
+              regular map object, and React binds to the same layers.
+            </p>
+          </div>
+          <div class="switch" data-slot="api-switch"></div>
+          <div data-slot="api-code"></div>
+        </section>
+      </div>
+
+      <footer class="site-foot">
+        <div class="wrap">
+          <div class="links">
+            <a href="https://github.com/whahedev/orihon">GitHub</a>
+            <a href="https://www.npmjs.com/package/orihon">npm</a>
+            <a href="https://github.com/whahedev/orihon/blob/main/docs/API.md">API reference</a>
+            <a href="https://github.com/whahedev/orihon/blob/main/docs/EASY.md">Easy API</a>
+            <a href="https://github.com/whahedev/orihon/blob/main/docs/MIGRATION-LEAFLET.md">From Leaflet</a>
+            <a href="https://github.com/whahedev/orihon/blob/main/docs/AI.md">AI API</a>
+            <a href="https://www.npmjs.com/package/create-orihon-app">create-orihon-app</a>
+            <a href="https://whahedev.github.io/orihon/bench/">Benchmark</a>
+            <a href="https://github.com/whahedev/orihon/blob/main/LICENSE">Apache-2.0</a>
+          </div>
+          <p>
+            Orihon Maps. Basemap tiles on these pages come from Esri; the library is not tied
+            to any tile provider. This page is running
+            <b data-slot="origin">…</b>.
+          </p>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>

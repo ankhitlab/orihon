@@ -1,0 +1,217 @@
+{
+  "goal": "create_visit_route",
+  "collection": "berlin-highlights",
+  "routeId": "berlin-walk",
+  "route": {
+    "optimize": "shortest",
+    "startId": "brandenburg-gate",
+    "annotateStops": true,
+    "reactive": true
+  },
+  "presentation": {
+    "clearMap": true,
+    "viewport": {
+      "mode": "fit",
+      "padding": 56,
+      "animation": "fly",
+      "durationMs": 700
+    },
+    "defaults": {
+      "category": "alpha",
+      "visual": {
+        "image": {
+          "shape": "circle",
+          "fit": "cover",
+          "borderColor": "#fbf4ed",
+          "borderWidth": 3
+        },
+        "size": 56,
+        "collisionMode": "auto"
+      }
+    }
+  },
+  "points": [
+    {
+      "id": "brandenburg-gate",
+      "position": {
+        "lat": 52.5163,
+        "lng": 13.3777
+      },
+      "title": "Brandenburg Gate",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Brandenburger_Tor_abends.jpg/330px-Brandenburger_Tor_abends.jpg",
+          "alt": "Brandenburg Gate"
+        },
+        "label": {
+          "text": "Brandenburg Gate",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "The Brandenburg Gate is an 18th-century neoclassical monument in Berlin, Germany.",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Brandenburger_Tor_abends.jpg/330px-Brandenburger_Tor_abends.jpg",
+          "alt": "Brandenburg Gate",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "reichstag-building",
+      "position": {
+        "lat": 52.51861111,
+        "lng": 13.37611111
+      },
+      "title": "Reichstag building",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Berlin_reichstag_west_panorama_2.jpg/330px-Berlin_reichstag_west_panorama_2.jpg",
+          "alt": "Reichstag building"
+        },
+        "label": {
+          "text": "Reichstag building",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "The Reichstag is a historic legislative government building on Platz der Republik in Berlin that is the seat of the Bundestag parliament.",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Berlin_reichstag_west_panorama_2.jpg/330px-Berlin_reichstag_west_panorama_2.jpg",
+          "alt": "Reichstag building",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "berlin-cathedral",
+      "position": {
+        "lat": 52.51916667,
+        "lng": 13.40111111
+      },
+      "title": "Berlin Cathedral",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/141227_Berliner_Dom.jpg/330px-141227_Berliner_Dom.jpg",
+          "alt": "Berlin Cathedral"
+        },
+        "label": {
+          "text": "Berlin Cathedral",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "Berlin Cathedral, also known as the Evangelical Supreme Parish and Collegiate Church, is a monumental German Protestant church and dynastic tomb at the Lustgarten on the Museum Island in central Berlin.",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/141227_Berliner_Dom.jpg/330px-141227_Berliner_Dom.jpg",
+          "alt": "Berlin Cathedral",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "museum-island",
+      "position": {
+        "lat": 52.52138889,
+        "lng": 13.39555556
+      },
+      "title": "Museum Island",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Berlin_Museumsinsel_Fernsehturm.jpg/330px-Berlin_Museumsinsel_Fernsehturm.jpg",
+          "alt": "Museum Island"
+        },
+        "label": {
+          "text": "Museum Island",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "The Museum Island is a museum complex on the northern part of Spree Island in the historic heart of Berlin, Germany.",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Berlin_Museumsinsel_Fernsehturm.jpg/330px-Berlin_Museumsinsel_Fernsehturm.jpg",
+          "alt": "Museum Island",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "berlin-victory-column",
+      "position": {
+        "lat": 52.51444444,
+        "lng": 13.35
+      },
+      "title": "Berlin Victory Column",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Berlin_Siegess%C3%A4ule_8245.jpg/330px-Berlin_Siegess%C3%A4ule_8245.jpg",
+          "alt": "Berlin Victory Column"
+        },
+        "label": {
+          "text": "Berlin Victory Column",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "The Victory Column is a monument in Berlin, Germany.",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Berlin_Siegess%C3%A4ule_8245.jpg/330px-Berlin_Siegess%C3%A4ule_8245.jpg",
+          "alt": "Berlin Victory Column",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "berlin-television-tower",
+      "position": {
+        "lat": 52.52083333,
+        "lng": 13.40944444
+      },
+      "title": "Fernsehturm Berlin",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/en/thumb/3/34/Fernsehturm_Berlin_logo.png/330px-Fernsehturm_Berlin_logo.png",
+          "alt": "Fernsehturm Berlin"
+        },
+        "label": {
+          "text": "Fernsehturm Berlin",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "The Fernsehturm in central Berlin was constructed between 1965 and 1969 by the government of the German Democratic Republic as both a functional broadcasting facility and a symbol of communist power..",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/en/thumb/3/34/Fernsehturm_Berlin_logo.png/330px-Fernsehturm_Berlin_logo.png",
+          "alt": "Fernsehturm Berlin",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    },
+    {
+      "id": "charlottenburg-palace",
+      "position": {
+        "lat": 52.5209,
+        "lng": 13.2957
+      },
+      "title": "Schloss Charlottenburg",
+      "visual": {
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Charlottenburg_Hohenzollern_2.jpg/330px-Charlottenburg_Hohenzollern_2.jpg",
+          "alt": "Schloss Charlottenburg"
+        },
+        "label": {
+          "text": "Schloss Charlottenburg",
+          "display": "hover"
+        }
+      },
+      "popup": {
+        "text": "Schloss Charlottenburg is a Baroque palace in Berlin, located in Charlottenburg, a district of the Charlottenburg-Wilmersdorf borough, and is among the largest palaces in the world..",
+        "image": {
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Charlottenburg_Hohenzollern_2.jpg/330px-Charlottenburg_Hohenzollern_2.jpg",
+          "alt": "Schloss Charlottenburg",
+          "caption": "Photo: Wikipedia"
+        }
+      }
+    }
+  ]
+}
