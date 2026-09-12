@@ -384,7 +384,7 @@ const accessiblePoints = markerCollection(points.slice(0, 1000), {
 showResult(local.getStats());`
   },
   webglPointLayer: {
-    note: "Для крупных iterable/async-iterable используйте \`setDataAsync()\`: слой готовит приватные packed buffers и атомарно заменяет активный GPU snapshot только после успешного импорта."
+    note: "Для крупных iterable/async-iterable используйте \`setDataAsync()\`: слой собирает буфер градусов float64 в ограниченных задачах main thread и атомарно заменяет активный GPU snapshot только после успешного импорта. Данные, переданные градусами (конструктор, \`setData()\`, \`setDataAsync()\`), проецируются в vertex shader, поэтому перемещение точки через \`patchPoint()\`/\`patchPoints()\` стоит две записи в память, а не синус и логарифм. Уже спроецированные буферы из \`setPackedData()\` хранятся и рисуются как mercator."
   },
   tileLayer: {
     summary: "Создаёт растровую подложку: по умолчанию DOM во всех tier, а renderer \"auto\" дополнительно разрешает WebGL и WebGPU.",
@@ -808,6 +808,9 @@ function describeOption(name, sourceDescription = "", propertyType = "") {
     noClip: "Отключает отсечение геометрии по границам viewport.",
     clipPadding: "Запас области отсечения вокруг viewport в CSS-пикселях.",
     maxDpr: "Верхний предел devicePixelRatio для внутреннего canvas; ограничивает расход GPU-памяти.",
+    mercatorPrecision: "Ширина хранимого mercator: f64 (по умолчанию) или f32. Для данных, переданных градусами, влияет только на производную копию для CPU-читателей (getMercatorAbs(), canvas fallback), а градусы возвращаются как переданы. Для setPackedData() f32 вдвое уменьшает память, но выше zoom 16 квантование достигает пикселя и точки заметно дрожат.",
+    sceneFeatures: "Сцена объектов: геометрии, пространственный индекс, слои иконок, подписей, трейлов и путей. auto (по умолчанию) держит её выключенной, пока не понадобится style-резолвер, зарегистрированная иконка, declutter или линия/полигон, и тогда строит из уже добавленных объектов; true включает сразу; false не включает даже после назначения стиля. Простой набор точек в auto стоит около 130 байт на объект вместо 430.",
+    retainFeatures: "Хранить исходные features для toGeoJSON(), последующих обновлений стиля и инспекции. false для write-once canvas/WebGL path batch на очень больших коллекциях: неинтерактивный WebGL batch тогда держит только буфер отрисовки. Точечные слои хранят features всегда. По умолчанию true.",
     fallbackCanvas: "Переключается на Canvas 2D, если инициализация WebGL невозможна.",
     cameraRedrawIntervalMs: "Минимальный интервал между точными GPU-перерисовками во время движения карты, в миллисекундах.",
     cameraSettleDelayMs: "Задержка финальной точной перерисовки после остановки камеры, в миллисекундах.",

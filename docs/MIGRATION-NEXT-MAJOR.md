@@ -519,8 +519,12 @@ custom-name fallback; no synthetic load/click events have been added.
 
 `webglPointLayer` used to keep three copies of every position: float32 degrees,
 float64 absolute mercator, and a float32 camera-relative copy for the GPU — 32
-bytes per point. Absolute mercator is now the single source of truth, and the
-other two are derived, which halves a non-interactive layer to 16 bytes per point.
+bytes per point. There is now one source of truth per layer, and the other copies
+are derived, which halves a non-interactive layer to 16 bytes per point. Which
+buffer is canonical depends on how the data arrived: degrees (the constructor,
+`setData()`, `setDataAsync()`) are kept as float64 degrees and projected in the
+vertex shader; buffers handed over already projected (`setPackedData()`) are kept as
+absolute mercator and drawn from it.
 
 `points` and `mercator` are getters rather than fields, so they can no longer be
 assigned to:
@@ -534,18 +538,24 @@ a shared 256 KB window instead of being stored, so reading the property builds a
 fresh array each time. Nothing in the library reads it; if you need positions, use
 `getMercatorAbs()` for the stored absolute buffer or `points` for degrees.
 
-`points` is unchanged for interactive layers. A non-interactive layer no longer
-stores degrees at all and derives them from the mercator buffer on first read,
-caching the result — so values come back as the exact inverse projection rather
-than the float32 of what you passed in. The two agree to well under 1e-5 degrees.
+`points` is the float32 view of whatever is canonical. For degree-fed data that is a
+narrowing of the stored float64 degrees, so values come back as what you passed in.
+For packed data the layer no longer stores degrees at all and derives them from the
+mercator buffer on first read, caching the result — the exact inverse projection
+rather than the float32 of the original input. The two agree to well under 1e-5
+degrees.
 
 `getStats().bufferBytes` reports what is actually held, so it drops accordingly and
-grows by 8 bytes per point the first time something reads `points`.
+grows by 8 bytes per point the first time something reads `points`. Under GPU
+projection the mercator is derived lazily too, and is only counted once a CPU reader —
+`getMercatorAbs()`, the canvas fallback — has asked for it.
 
-New: `mercatorPrecision: "f32"` halves mercator storage to 8 bytes per point for
-datasets bounded below roughly zoom 16 — above that, quantisation reaches a pixel
-and points visibly wobble. Because positions now have a single source of truth,
-that precision propagates to `points`, event payloads and hit-testing.
+New: `mercatorPrecision: "f32"` halves mercator storage to 8 bytes per point. For
+packed data that is the drawn buffer, so it is only for datasets bounded below
+roughly zoom 16 — above that, quantisation reaches a pixel and points visibly
+wobble — and the precision propagates to `points`, event payloads and hit-testing.
+For degree-fed data it sets only the width of the derived CPU copy; drawing, `points`
+and hit-testing keep the float64 degrees.
 
 ## Remaining review work
 

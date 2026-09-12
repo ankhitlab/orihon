@@ -47,13 +47,21 @@ const density = webglPointLayer(points, { pointSize: 4, color: "#e11d48" }).addT
 density.setViewTransform({ rotation: 20, pitch: 30 });
 ```
 
+A plain point set, clustered or not, costs the manager about 130 bytes an object. The
+per-object scene — geometries, spatial index, icon and label layers — comes up on its own the
+first time a style resolver, a registered icon, declutter or a line/polygon needs it
+(`sceneFeatures: "auto"`, the default), and is built from the objects already stored. Pass
+`sceneFeatures: false` to keep it down for untrusted bulk points even after a style arrives.
+
 ## A Million Points, And Moving Them
 
 At mass scale the cost moves from drawing to allocating. `webglPointLayer` stores points in
 packed typed arrays, so the fastest paths are the ones that never build an object per point.
 
-Load large sources with `setDataAsync()`. It projects across bounded main-thread tasks and
-swaps the GPU snapshot atomically, so the map stays responsive while it ingests:
+Load large sources with `setDataAsync()`. It packs degrees across bounded main-thread tasks and
+swaps the GPU snapshot atomically, so the map stays responsive while it ingests. Nothing is
+projected on the way in: data that arrives as degrees stays float64 degrees and is projected in
+the vertex shader, so moving a point later costs two stores rather than a sine and a logarithm.
 
 ```js
 await density.setDataAsync(points, { chunkSize: 50_000, yieldMode: "task" });
@@ -85,8 +93,8 @@ density.setPackedData(latlng, merc, { adopt: true });
 `adopt` takes ownership without copying, so do not reuse those arrays for anything else
 afterwards — the layer is now reading and writing them.
 
-Absolute mercator costs 16 bytes per point by default. Datasets that never go past roughly zoom
-16 can halve that:
+Packed data is stored and drawn as absolute mercator, 16 bytes per point by default. Datasets
+that never go past roughly zoom 16 can halve that:
 
 ```js
 webglPointLayer(points, { mercatorPrecision: "f32" });
@@ -95,7 +103,9 @@ webglPointLayer(points, { mercatorPrecision: "f32" });
 Float32 quantises a normalized mercator to about 3e-8, which is a tenth of a pixel at zoom 14
 and half a pixel at 16, but two pixels at 18 and eight at 20 — points visibly wobble as the
 camera moves at those zooms. Keep the default `"f64"` unless the saving matters and the zoom
-range is bounded.
+range is bounded. For degree-fed data the option only sets the width of the mercator copy the
+layer derives for CPU readers such as `getMercatorAbs()`; drawing and hit-testing keep the
+float64 degrees, so there is nothing to wobble.
 
 To move points that are already loaded, patch them instead of replacing the set. `patchPoint()`
 writes one position; `patchPoints()` takes flat arrays, sorts and merges the touched slots, and
@@ -147,6 +157,10 @@ heatLayer(points, {
 ```
 
 `scaleZoom` is the zoom where `radius` is the geographic bandwidth. The kernel grows and shrinks with mercator zoom; `max` is how many overlapping unit kernels map to red. A uniform field stays the same color at every zoom instead of turning red when you zoom out.
+
+Keep one layer and feed it with `setData()` rather than creating a layer per update. The field
+worker costs more to start than the field it computes, so a removed layer hands its worker to
+the next one instead of terminating it — but a long-lived layer never pays that at all.
 
 ## Binary Vector Tiles
 
