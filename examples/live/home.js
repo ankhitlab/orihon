@@ -7,7 +7,7 @@ import { mountBench } from "./bench.js";
 
 await ready();
 
-const site = window.OrihonSite || { version: "2.0.1", origin: "npm", base: "" };
+const site = window.OrihonSite || { version: "2.1.0", origin: "npm", base: "" };
 
 /* ------------------------------------------------------------- hero + copy - */
 

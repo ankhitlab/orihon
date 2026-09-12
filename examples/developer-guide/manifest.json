@@ -1,5 +1,5 @@
 {
-  "version": "2.0.1",
+  "version": "2.1.0",
   "source": "src/advanced-entry.ts",
   "confluenceSource": "http://confluence.home",
   "functions": [

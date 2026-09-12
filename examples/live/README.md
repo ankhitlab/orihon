@@ -47,7 +47,7 @@ To rehearse a deployment, serve only this folder:
 node examples/live/server.mjs --port 4181 --standalone
 ```
 
-`dist/` is then out of reach and every page falls back to `orihon@2.0.1` on
+`dist/` is then out of reach and every page falls back to `orihon@2.1.0` on
 jsDelivr, which is what a plain static host will do.
 
 ## Publish it
@@ -142,9 +142,8 @@ that scenario’s `verdict` rather than dropping the row.
   `src/draw/locale.ts` (draw toolbar) and the fullscreen/measure labels in
   `src/controls.ts`. `test/control-locale.test.js` guards that every shipped control
   follows `map.setLocale()`.
-- **orihon/ai** — on `main`, not in the published 2.0.1. The landing section says so, and
-  `demos/ai-places/` degrades to an explanatory message in CDN mode instead of failing.
-  Drop both once a release carries the `./ai` export.
+- **orihon/ai** — ships from 2.1.0. `demos/ai-places/` still degrades to an explanatory
+  message when the CDN build it loads predates the `./ai` export.
 - **demos/ai-places/plan.json** — seven Berlin landmarks captured from the Wikipedia REST
   summary API (the endpoint `src/ai/place-search.ts` itself defaults to), then checked with
   `validatePointsReplaceCommand()` before being committed. No model is involved at run time.
