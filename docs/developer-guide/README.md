@@ -3,7 +3,7 @@
 The local guide is generated from two sources:
 
 1. The actual function exports and TypeScript declarations in `src/index.ts`.
-2. A read-only snapshot of the existing Confluence child pages in `confluence-source.json`.
+2. A read-only snapshot of the legacy Confluence pages in `confluence-source.json` — page titles and Markdown bodies only; the wiki addresses were stripped, so the snapshot does not depend on or point at any internal host.
 
 Run:
 

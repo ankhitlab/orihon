@@ -1224,7 +1224,7 @@ const legacy = new Map();
 for (const page of confluence.pages) {
   const match = /^Orihon API - (.+)$/.exec(page.title);
   if (!match || /\(legacy\)$/i.test(match[1])) continue;
-  legacy.set(match[1], { ...parseConfluence(page.markdown), confluenceUrl: page.url });
+  legacy.set(match[1], parseConfluence(page.markdown));
 }
 
 const obsolete = new Set(["webglHeatLayer", "heatIsolineLayer", "buildHeatIsolines"]);
@@ -1267,7 +1267,6 @@ const functions = [...exportedFunctionRecords(sourceEntry), ...optionalRecords]
       playground: playgroundExamples[record.name] || generatedPlayground(record),
       note: override.note || imported.note || "",
       sections: override.sections || [],
-      confluenceUrl: imported.confluenceUrl || null,
       source: relative(root, record.sourcePath).replaceAll("\\", "/")
     };
   })
@@ -1292,7 +1291,6 @@ await writeFile(join(guideRoot, "index.html"), renderHome(functions, navigation)
 await writeFile(join(guideRoot, "manifest.json"), JSON.stringify({
   version: pkg.version,
   source: "src/advanced-entry.ts",
-  confluenceSource: confluence.source,
   functions: functions.map(({ name, group, entry, summary }) => ({
     name, group, entry, summary, url: `./functions/${name}/`
   }))
