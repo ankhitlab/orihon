@@ -24,14 +24,18 @@ Major dependency versions are not upgraded solely because `npm outdated` reports
 npm ci
 npm run typecheck
 npm test
+npm run docs:check
 npm run test:browser
 npm run test:e2e
 npm run test:leaks
 npm run test:plugin
 npm run size
+npm run perf
 ```
 
-`npm test` rebuilds `dist` before running unit tests. `npm audit --omit=optional` checks the current lock file against the npm advisory database. Run it online before a release.
+`npm test` rebuilds `dist` before running unit tests. `npm run docs:check` rebuilds the developer guide and runs `docs:versions`, which keeps `package.json`, CHANGELOG, CDN example pins, live-site fallbacks and `create-orihon-app` on the same semver. `npm audit --omit=optional` checks the current lock file against the npm advisory database. Run it online before a release.
+
+`npm run perf` / `npm run perf:ci` enforce the CPU performance contract described in [`bench/README.md`](../bench/README.md): median of several Node runs, machine-normalized scores against `bench/baselines/cpu-ci.json`, failing around a 15% score regression (not a 2–3% micro-gate). GPU paint benches stay outside this PR job.
 
 ## Build outputs and package entries
 

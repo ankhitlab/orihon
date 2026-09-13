@@ -29,8 +29,31 @@ export interface PopupContentOptions {
   properties?: (context: OverlayContentContext) => Record<string, unknown>;
 }
 
+/**
+ * Trusted application configuration for loading ECharts. Never read these fields
+ * from popup block props / GeoJSON / AI-generated specs — that would let untrusted
+ * data inject a `<script src>`.
+ */
 export interface EChartsPopupRendererOptions {
+  /**
+   * Script URL used only when `echarts` is not supplied and `globalThis.echarts`
+   * is missing. Must be set in the factory call, not on the popup block.
+   */
   libraryUrl?: string;
+  /** Already-imported ECharts API. Preferred: no script tag is injected. */
+  echarts?: EChartsApi;
+  /**
+   * When set, `libraryUrl` must resolve to one of these origins
+   * (e.g. `["https://cdn.jsdelivr.net"]`). Compared via `URL.origin`.
+   */
+  allowedLibraryOrigins?: readonly string[];
+  /** Subresource Integrity hash for the injected script tag. */
+  integrity?: string;
+  /**
+   * `crossorigin` for the script tag. Defaults to `"anonymous"` when `integrity`
+   * is set (required for SRI to apply).
+   */
+  crossOrigin?: "" | "anonymous" | "use-credentials";
   renderer?: "canvas" | "svg";
 }
 
@@ -41,7 +64,7 @@ interface EChartsInstance {
   isDisposed?(): boolean;
 }
 
-interface EChartsApi {
+export interface EChartsApi {
   init(container: HTMLElement, theme?: unknown, options?: { renderer?: "canvas" | "svg" }): EChartsInstance;
 }
 
@@ -185,12 +208,22 @@ export function popupConditionMatches(
   return match[3] === "!=" ? String(value) !== match[4] : String(value) === match[4];
 }
 
-/** Optional ECharts adapter; ECharts is loaded only when the first chart mounts. */
+/**
+ * Optional ECharts adapter. The library is loaded only when the first chart mounts.
+ *
+ * Trust boundary: `libraryUrl`, `allowedLibraryOrigins`, `integrity`, `crossOrigin`
+ * and `echarts` come only from this factory. `popupChart` props must never carry a
+ * script URL — `props.libraryUrl` is rejected.
+ */
 export function createEChartsPopupRenderer(options: EChartsPopupRendererOptions = {}): PopupChartRenderer {
   return async (container, block) => {
     const props = block.props ?? {};
-    const url = stringValue(props.libraryUrl, options.libraryUrl ?? "");
-    const echarts = await loadECharts(url);
+    if ("libraryUrl" in props) {
+      throw new Error(
+        "popupChart props.libraryUrl is not allowed. Pass libraryUrl, echarts, or allowedLibraryOrigins only to createEChartsPopupRenderer({ ... })."
+      );
+    }
+    const echarts = await resolveECharts(options);
     if (!container.isConnected) return;
     const chart = echarts.init(container, undefined, { renderer: options.renderer ?? "canvas" });
     chart.setOption(echartsOption(props, block.title));
@@ -290,17 +323,72 @@ function defaultProperties(context: OverlayContentContext): Record<string, unkno
   return event?.feature?.properties ?? direct.feature?.properties ?? direct.properties ?? {};
 }
 
-function loadECharts(url: string): Promise<EChartsApi> {
+function resolveECharts(options: EChartsPopupRendererOptions): Promise<EChartsApi> {
+  if (options.echarts) return Promise.resolve(options.echarts);
   const existing = (globalThis as typeof globalThis & { echarts?: EChartsApi }).echarts;
   if (existing) return Promise.resolve(existing);
-  if (!url) return Promise.reject(new Error("ECharts library URL is empty"));
-  let pending = chartLibraries.get(url);
+  const url = stringValue(options.libraryUrl).trim();
+  if (!url) {
+    return Promise.reject(
+      new Error("ECharts is not available. Pass createEChartsPopupRenderer({ echarts }) or { libraryUrl }.")
+    );
+  }
+  const trusted = assertTrustedLibraryUrl(url, options.allowedLibraryOrigins);
+  return loadEChartsScript(trusted.href, options);
+}
+
+function assertTrustedLibraryUrl(url: string, allowedOrigins?: readonly string[]): URL {
+  let parsed: URL;
+  try {
+    const base =
+      typeof globalThis.location?.href === "string" && globalThis.location.href
+        ? globalThis.location.href
+        : "https://invalid.local/";
+    parsed = new URL(url, base);
+  } catch {
+    throw new Error("ECharts libraryUrl is not a valid URL");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("ECharts libraryUrl must use http: or https:");
+  }
+  if (allowedOrigins?.length) {
+    const allowed = new Set(
+      allowedOrigins.map((origin) => {
+        try {
+          return new URL(origin).origin;
+        } catch {
+          return origin;
+        }
+      })
+    );
+    if (!allowed.has(parsed.origin)) {
+      throw new Error(`ECharts libraryUrl origin is not allowed: ${parsed.origin}`);
+    }
+  }
+  return parsed;
+}
+
+function loadEChartsScript(url: string, options: EChartsPopupRendererOptions): Promise<EChartsApi> {
+  const integrity = stringValue(options.integrity).trim();
+  const crossOrigin =
+    options.crossOrigin ?? (integrity ? "anonymous" : undefined);
+  const cacheKey = `${url}\0${integrity}\0${crossOrigin ?? ""}`;
+  let pending = chartLibraries.get(cacheKey);
   if (!pending) {
     pending = new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = url;
       script.async = true;
       script.dataset.orihonChartLibrary = url;
+      if (integrity) {
+        script.integrity = integrity;
+        script.setAttribute("integrity", integrity);
+      }
+      if (crossOrigin !== undefined) {
+        script.crossOrigin = crossOrigin;
+        if (crossOrigin === "") script.removeAttribute("crossorigin");
+        else script.setAttribute("crossorigin", crossOrigin);
+      }
       script.onload = () => {
         const loaded = (globalThis as typeof globalThis & { echarts?: EChartsApi }).echarts;
         if (loaded) resolve(loaded);
@@ -309,7 +397,7 @@ function loadECharts(url: string): Promise<EChartsApi> {
       script.onerror = () => reject(new Error("Could not load ECharts"));
       document.head.append(script);
     });
-    chartLibraries.set(url, pending);
+    chartLibraries.set(cacheKey, pending);
   }
   return pending;
 }

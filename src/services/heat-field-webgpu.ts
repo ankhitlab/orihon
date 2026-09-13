@@ -1,4 +1,5 @@
 import type { HeatFieldKernelRequest, HeatFieldKernelResult } from "./heat-field-wasm.js";
+import { watchGpuDeviceLost } from "../gpu-resource-owner.js";
 
 export interface HeatFieldWebGpuProfile {
   supported?: boolean; uploadBytes?: number; outputBytes?: number; quantizationScale?: number;
@@ -24,6 +25,8 @@ interface GpuDevice {
   createBindGroup(desc: object): object;
   createCommandEncoder(): GpuCommandEncoder;
   queue: { writeBuffer(buffer: GpuBuffer, offset: number, data: BufferSource): void; submit(commands: object[]): void; onSubmittedWorkDone?(): Promise<void>; };
+  lost: Promise<unknown>;
+  destroy(): void;
 }
 interface GpuAdapter { requestDevice(): Promise<GpuDevice>; }
 interface Gpu { requestAdapter(options?: object): Promise<GpuAdapter | null>; }
@@ -215,7 +218,17 @@ async function getGpuState(): Promise<GpuState | null> {
       const gpu = typeof navigator !== "undefined" ? (navigator as unknown as { gpu?: Gpu }).gpu : undefined;
       if (!gpu) return null;
       const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" }); if (!adapter) return null;
-      const device = await adapter.requestDevice(); const module = device.createShaderModule({ code: HEAT_FIELD_WGSL });
+      const device = await adapter.requestDevice();
+      watchGpuDeviceLost(device, () => {
+        // Drop the shared device so the next heat build reacquires a healthy one.
+        gpuStatePromise = null;
+        try {
+          device.destroy();
+        } catch {
+          /* already lost */
+        }
+      });
+      const module = device.createShaderModule({ code: HEAT_FIELD_WGSL });
       return {
         device,
         binPipeline: device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "binPoints" } }),

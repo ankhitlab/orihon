@@ -1,8 +1,8 @@
-# Orihon 1.x enhancement specs
+# Orihon enhancement roadmap (2.x)
 
-Implementation specs for the gaps identified against Leaflet, OpenLayers, MapLibre GL and Yandex Maps JS API. This is not a commitment to ship every item in one release. Each section is written so it can be implemented and reviewed independently.
+Implementation specs for the gaps identified against Leaflet, OpenLayers, MapLibre GL and Yandex Maps JS API. This is not a commitment to ship every item in one release. Each section is written so it can be implemented and reviewed independently. Version banners and CDN pins are kept in lockstep with `package.json` via `npm run docs:versions`.
 
-Related: [API](API.md) · [PLUGINS](PLUGINS.md) · [SECURITY](SECURITY.md)
+Related: [API](API.md) · [PLUGINS](PLUGINS.md) · [SECURITY](SECURITY.md) · [SUPPORT](SUPPORT.md) · [CONTRIBUTING](../CONTRIBUTING.md)
 
 ## Constraints
 
@@ -13,9 +13,10 @@ These hold for every item below. If a design violates them, change the design.
 3. **No prototype patching.** Plugins extend `Layer` / `Control` and import only public entries.
 4. **Safe content.** Strings are `textContent`. Markup is a `Node`. No `innerHTML`. SVG stays sanitized.
 5. **Network is BYO.** Search, routing, geocoding, traffic stay provider-based with `AbortSignal`.
-6. **Do not become MapLibre.** No Mapbox Style spec, glyphs/PBF fonts, terrain, globe, or map-level pitch/bearing camera in 1.x.
+6. **Do not become MapLibre.** No Mapbox Style spec, glyphs/PBF fonts, terrain, globe, or map-level pitch/bearing camera in the current major (2.x).
 7. **Do not become OpenLayers.** No Proj4 / arbitrary CRS in core. WMS already speaks `EPSG:3857` and `EPSG:4326` as *request* CRS; the map stays Web Mercator unless `CRS.Simple` is set.
 8. **GPU layers assume Mercator.** `webglPointLayer`, `heatLayer`, `tileLayer({ renderer: "webgl"|"auto" })`, `WebGLPathBatch`, ObjectManager WebGL path **throw a typed error** on a Simple-CRS map rather than rendering wrong.
+9. **GPU contexts recover.** WebGL owners handle `webglcontextlost` / `webglcontextrestored` (shared `WebGlContextOwner`); WebGPU owners watch `device.lost` and rebuild or fall back. Long-lived dashboards must not go permanently blank after sleep, VRAM pressure, or driver resets.
 
 ## Packaging
 
@@ -242,8 +243,11 @@ import "orihon/orihon.css";
 
 - Strict Mode double-mount does not leak maps (lifecycle leak test with `map.remove` spy).
 - Updating `center`/`zoom` from props calls `setView` and does not reset layers.
+- Updating `minZoom` / `maxZoom` / `maxBounds` / `behaviors` and Marker appearance / `draggable` from props calls the matching `set*` (declarative after mount).
 - Package export `orihon/react` is tree-shakeable; `orihon/advanced` does not import React, and the ObjectManager wrapper is isolated in `orihon/react/object-manager`.
 - Example: `examples/react` (Vite) with Map + GeoJSON + ObjectManager.
+
+**Status.** Shipped; prop sync matrix lives in [API.md](./API.md#react). `crs` and most TileLayer options remain recreate-required.
 
 **Non-goals.** React Native, SSR map rendering, Vue.
 
@@ -472,7 +476,7 @@ Do not start P1 GPU/MVT work before P0. Draw and React are what unblock adoption
 | 8 | P1.2 textLayer, P1.4 PMTiles | Heavier; optional entries if size slips |
 | 9 | P2 controls + export | Tender checkboxes |
 
-## Explicitly out of 1.x core
+## Explicitly out of 2.x core
 
 | Idea | Why not |
 | --- | --- |

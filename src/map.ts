@@ -202,8 +202,8 @@ export class Orihon extends Evented<MapEventMap> {
   /**
    * Read-only configuration view, matching `Layer.options`. Assigning a field
    * changes no live state — `controls` would not remove existing controls, `locale` would not
-   * re-render them. Use `setLocale`, `setMaxBounds`, `setMinZoom` / `setMaxZoom` and
-   * `map.behaviors` instead.
+   * re-render them. Use `setLocale`, `setMaxBounds`, `setMinZoom` / `setMaxZoom`,
+   * `setControls`, `setBehaviors`, `setAriaLabel` and the other `set*` methods instead.
    *
    * `Readonly` is a TypeScript guarantee: this is a read-only view of the live configuration
    * object, not a copy, and the modifier disappears at runtime.
@@ -263,6 +263,8 @@ export class Orihon extends Evented<MapEventMap> {
   #resizeObserver: ResizeObserver | null = null;
   #destroyed = false;
   readonly #initialA11y: { role: string | null; ariaLabel: string | null; tabIndex: string | null };
+  /** Default zoom / scale / attribution controls installed when `controls: true`. */
+  #defaultControls: Control[] = [];
 
   constructor(container: string | HTMLElement, options: MapOptions = {}) {
     super();
@@ -290,11 +292,7 @@ export class Orihon extends Evented<MapEventMap> {
     this.#bindInput();
     this.#bindResize();
     this.invalidateSize();
-    if (this.#options.controls) {
-      new ZoomControl({ locale: this.locale }).addTo(this);
-      new ScaleControl({ locale: this.locale }).addTo(this);
-      new AttributionControl({ locale: this.locale }).addTo(this);
-    }
+    if (this.#options.controls) this.#installDefaultControls();
     this.#scheduleCollapsedContainerCheck();
     this.#trackLocale(this.#options.locale);
     this.#render();
@@ -1057,6 +1055,126 @@ export class Orihon extends Evented<MapEventMap> {
     return this.#setZoomLimit("maxZoom", zoom);
   }
 
+  setMaxBoundsViscosity(value: number): this {
+    const next = Number(value);
+    if (!Number.isFinite(next)) throw new TypeError("Orihon maxBoundsViscosity must be a finite number");
+    const clamped = Math.max(0, Math.min(1, next));
+    if (this.#options.maxBoundsViscosity === clamped) return this;
+    this.#options.maxBoundsViscosity = clamped;
+    return this;
+  }
+
+  setZoomSnap(zoomSnap: number): this {
+    const next = Number(zoomSnap);
+    if (!Number.isFinite(next) || next < 0) throw new TypeError("Orihon zoomSnap must be a non-negative finite number");
+    if (this.#options.zoomSnap === next) return this;
+    this.#options.zoomSnap = next;
+    return this.setView(this.#center, this.#zoom);
+  }
+
+  setWheelZoomStep(step: number): this {
+    const next = Number(step);
+    if (!Number.isFinite(next) || next <= 0) throw new TypeError("Orihon wheelZoomStep must be a positive finite number");
+    if (this.#options.wheelZoomStep === next) return this;
+    this.#options.wheelZoomStep = next;
+    return this;
+  }
+
+  setInertia(enabled: boolean): this {
+    const next = Boolean(enabled);
+    if (this.#options.inertia === next) return this;
+    this.#options.inertia = next;
+    return this;
+  }
+
+  setInertiaDeceleration(value: number): this {
+    const next = nonNegativeFinite(value, "inertiaDeceleration");
+    if (this.#options.inertiaDeceleration === next) return this;
+    this.#options.inertiaDeceleration = next;
+    return this;
+  }
+
+  setInertiaMaxSpeed(value: number): this {
+    const next = nonNegativeFinite(value, "inertiaMaxSpeed");
+    if (this.#options.inertiaMaxSpeed === next) return this;
+    this.#options.inertiaMaxSpeed = next;
+    return this;
+  }
+
+  setZoomAnimationDurationMs(ms: number): this {
+    const next = nonNegativeFinite(ms, "zoomAnimationDurationMs");
+    if (this.#options.zoomAnimationDurationMs === next) return this;
+    this.#options.zoomAnimationDurationMs = next;
+    return this;
+  }
+
+  setKeyboard(enabled: boolean): this {
+    const next = Boolean(enabled);
+    if (this.#options.keyboard === next) return this;
+    this.#options.keyboard = next;
+    return this;
+  }
+
+  setKeyboardPanDelta(delta: number): this {
+    const next = Number(delta);
+    if (!Number.isFinite(next) || next <= 0) throw new TypeError("Orihon keyboardPanDelta must be a positive finite number");
+    if (this.#options.keyboardPanDelta === next) return this;
+    this.#options.keyboardPanDelta = next;
+    return this;
+  }
+
+  setAriaLabel(label: string): this {
+    const next = String(label ?? "");
+    if (this.#options.ariaLabel === next) return this;
+    this.#options.ariaLabel = next;
+    this.container.setAttribute("aria-label", next || this.locale.mapLabel);
+    return this;
+  }
+
+  /**
+   * Install or remove the default zoom / scale / attribution controls.
+   * Custom controls added via `addControl` are left alone.
+   */
+  setControls(enabled: boolean): this {
+    const next = Boolean(enabled);
+    if (this.#options.controls === next) return this;
+    this.#options.controls = next;
+    if (next) this.#installDefaultControls();
+    else this.#removeDefaultControls();
+    return this;
+  }
+
+  /**
+   * Apply a partial behavior map. Omitted keys keep their current enabled state;
+   * use `behaviors.enable` / `disable` for one-off changes.
+   */
+  setBehaviors(partial: BehaviorOptions): this {
+    if (!partial || typeof partial !== "object") throw new TypeError("Orihon behaviors must be an object");
+    for (const name of Object.keys(DEFAULT_BEHAVIORS) as MapBehaviorName[]) {
+      if (partial[name] === undefined) continue;
+      if (partial[name]) this.behaviors.enable(name);
+      else this.behaviors.disable(name);
+    }
+    return this;
+  }
+
+  #installDefaultControls(): void {
+    if (this.#defaultControls.length) return;
+    const defaults: Control[] = [
+      new ZoomControl({ locale: this.locale }),
+      new ScaleControl({ locale: this.locale }),
+      new AttributionControl({ locale: this.locale })
+    ];
+    for (const control of defaults) {
+      control.addTo(this);
+      this.#defaultControls.push(control);
+    }
+  }
+
+  #removeDefaultControls(): void {
+    for (const control of this.#defaultControls.splice(0)) this.removeControl(control);
+  }
+
   #setZoomLimit(name: "minZoom" | "maxZoom", zoom: number): this {
     if (!Number.isFinite(zoom)) throw new TypeError(`Orihon ${name} must be a finite number`);
     const min = name === "minZoom" ? zoom : this.#options.minZoom;
@@ -1247,6 +1365,7 @@ export class Orihon extends Evented<MapEventMap> {
     this.#endViewSession(true, true);
     for (const layer of [...this.#layers]) this.removeLayer(layer);
     for (const control of [...this.#controls]) this.removeControl(control);
+    this.#defaultControls.length = 0;
     for (const unsubscribe of this.#unsub.splice(0)) unsubscribe();
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;

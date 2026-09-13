@@ -16,6 +16,7 @@ import type { RasterTileEventDetail } from "./tile-layer.js";
 import type { Orihon } from "../map.js";
 import { assertMercator } from "../crs.js";
 import { compileShader, linkProgram } from "../webgl-utils.js";
+import { WebGlContextOwner, watchGpuDeviceLost, type GpuDeviceLostHandle } from "../gpu-resource-owner.js";
 import { modulo, nativeTileZoom, normalizeTileBounds, shouldRedrawTiles, type RasterTileLayer, type RasterTileRendererKind, type RasterTileStats, type TileRedrawFlag, type TileTemplate } from "./tile-layer.js";
 import {
   forEachTileInRect,
@@ -121,6 +122,8 @@ interface WebGpuDevice {
     writeBuffer(buffer: WebGpuBuffer, offset: number, data: BufferSource): void;
     submit(commands: object[]): void;
   };
+  lost: Promise<{ reason?: string; message?: string }>;
+  destroy(): void;
 }
 interface WebGpuAdapter { requestDevice(): Promise<WebGpuDevice> }
 interface WebGpuApi { requestAdapter(): Promise<WebGpuAdapter | null>; getPreferredCanvasFormat?(): string }
@@ -214,6 +217,8 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
   private _gpuSampler: WebGpuSampler | null = null;
   private _gpuFormat = "bgra8unorm";
   private _gpuIniting = false;
+  readonly #glOwner = new WebGlContextOwner();
+  #deviceLost: GpuDeviceLostHandle | null = null;
   private _useArray = false;
   private _arrayTex: WebGLTexture | null = null;
   private _arrayDim = 0;
@@ -386,6 +391,9 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
     }
     this.#clearSettleTimer();
     this.#clearZoomSwitchTimer();
+    this.#glOwner.detach();
+    this.#deviceLost?.cancel();
+    this.#deviceLost = null;
     this.#disposeAllTiles();
     this.#disposePipeline();
     if (this.canvas) {
@@ -535,6 +543,59 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
     }
     this.renderer = "webgl";
     if (this.gl2) this.#initPipelineGL2();
+    if (this.canvas) {
+      this.#glOwner.attach(this.canvas, {
+        onLost: () => this.#handleGlLost(),
+        onRestored: () => this.#handleGlRestored()
+      }, this.gl);
+    }
+    this._dirty = true;
+    this.render();
+    return true;
+  }
+
+  #handleGlLost(): void {
+    this.quadBuffer = null;
+    this.instanceBuffer = null;
+    this._arrayTex = null;
+    this.program2 = null;
+    this.program = null;
+    this.locs = null;
+    this.locs2 = null;
+    this.gl = null;
+    this.gl2 = null;
+    this._useArray = false;
+    this._freeSlots = [];
+    this.renderer = "none";
+    // GPU tile textures bound to the lost context are dead; drop them so restore re-uploads.
+    for (const tile of this.tiles.values()) {
+      tile.texture = null;
+      tile.slot = -1;
+    }
+  }
+
+  #handleGlRestored(): boolean {
+    if (!this.canvas) return false;
+    // Re-acquire without re-attaching listeners (owner already owns the canvas).
+    const glAttrs: WebGLContextAttributes = {
+      antialias: false,
+      alpha: true,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: true,
+      powerPreference: "high-performance",
+      preserveDrawingBuffer: false
+    };
+    this.gl2 = this.canvas.getContext("webgl2", glAttrs) as WebGL2RenderingContext | null;
+    this.gl = this.gl2 || this.canvas.getContext("webgl", glAttrs);
+    if (!this.gl || !this.#initPipeline()) {
+      this.renderer = "none";
+      this.gl = null;
+      this.gl2 = null;
+      return false;
+    }
+    this.renderer = "webgl";
+    if (this.gl2) this.#initPipelineGL2();
     this._dirty = true;
     this.render();
     return true;
@@ -574,6 +635,8 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
       this._gpuContext = context;
       this._gpuPipeline = pipeline;
       this._gpuSampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+      this.#deviceLost?.cancel();
+      this.#deviceLost = watchGpuDeviceLost(device, () => this.#handleGpuDeviceLost());
       this.renderer = "webgpu";
       this._dirty = true;
       this.render();
@@ -586,6 +649,38 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
     } finally {
       this._gpuIniting = false;
     }
+  }
+
+  #handleGpuDeviceLost(): void {
+    this.#deviceLost = null;
+    this._gpuDevice = null;
+    this._gpuContext = null;
+    this._gpuPipeline = null;
+    this._gpuSampler = null;
+    for (const tile of this.tiles.values()) {
+      const tex = tile.texture;
+      if (tex && "destroy" in tex) {
+        try {
+          tex.destroy();
+        } catch {
+          /* already dead */
+        }
+      }
+      tile.texture = null;
+      if (tile.uniform) {
+        try {
+          tile.uniform.destroy();
+        } catch {
+          /* already dead */
+        }
+      }
+      tile.uniform = null;
+      tile.bindGroup = null;
+    }
+    this.renderer = "none";
+    // Prefer WebGL recovery so the basemap returns even if WebGPU stays down.
+    if (this.map && this.canvas && this.options.backend !== "webgpu") this.#initWebGl();
+    else if (this.map && this.canvas) void this.#initWebGpu();
   }
 
   #initPipeline(): boolean {
@@ -716,6 +811,8 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
   }
 
   #disposePipeline(): void {
+    this.#deviceLost?.cancel();
+    this.#deviceLost = null;
     const gl = this.gl;
     if (gl) {
       try {
@@ -740,6 +837,11 @@ export class GPUTileLayer extends Layer<ResolvedOptions, GPUTileLayerEventMap> i
     this.gl2 = null;
     this._useArray = false;
     this._freeSlots = [];
+    try {
+      this._gpuDevice?.destroy();
+    } catch {
+      /* ignore */
+    }
     this._gpuDevice = null;
     this._gpuContext = null;
     this._gpuPipeline = null;

@@ -1,0 +1,55 @@
+name: Performance regression
+description: FPS, memory, ingest time, or bundle size got worse
+title: "[perf] "
+labels: ["performance"]
+body:
+  - type: input
+    id: version_good
+    attributes:
+      label: Last good version
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: input
+    id: version_bad
+    attributes:
+      label: First bad version / commit
+      placeholder: 2.1.0 or abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of regression
+      options:
+        - Frame time / FPS
+        - Memory / retained heap
+        - Data ingest / worker time
+        - Bundle size (gzip)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers
+      description: Before vs after with units (ms, FPS, MiB, KiB gzip).
+      placeholder: |
+        Before 2.0.0: 58 FPS @ 1M points patchPoints
+        After 2.1.0: 17 FPS same harness
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Which example, bench, or app path? Include entry (`orihon`, ObjectManager, WebGL points, …).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce
+      description: Commands (`npm run demo:bench`, harness URL, dataset size).
+    validations:
+      required: true

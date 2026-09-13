@@ -96,3 +96,163 @@ test("React ObjectManager keeps id-diffed objects through Strict Mode replay", a
   dom.window.close();
   delete globalThis.ResizeObserver;
 });
+
+function withReactDom(run) {
+  return async () => {
+    const dom = new JSDOM("<!doctype html><div id='root'></div>", { pretendToBeVisual: true });
+    globalThis.window = dom.window;
+    globalThis.document = dom.window.document;
+    globalThis.Node = dom.window.Node;
+    globalThis.HTMLElement = dom.window.HTMLElement;
+    globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+    globalThis.requestAnimationFrame = (callback) => setTimeout(() => callback(performance.now()), 0);
+    globalThis.cancelAnimationFrame = clearTimeout;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    try {
+      await run(dom);
+    } finally {
+      dom.window.close();
+      delete globalThis.ResizeObserver;
+      delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+    }
+  };
+}
+
+test("React Map syncs maxZoom, minZoom, maxBounds and behaviors after mount", withReactDom(async () => {
+  let map;
+  const root = createRoot(document.getElementById("root"));
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      maxZoom: 12,
+      onMapReady: (value) => { map = value; }
+    }));
+  });
+  assert.equal(map.options.maxZoom, 12);
+
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      minZoom: 3,
+      maxZoom: 8,
+      maxBounds: [{ lat: 0, lng: 0 }, { lat: 20, lng: 20 }],
+      behaviors: { drag: false, scrollZoom: false },
+      onMapReady: (value) => { map = value; }
+    }));
+  });
+
+  assert.equal(map.options.minZoom, 3);
+  assert.equal(map.options.maxZoom, 8);
+  assert.ok(map.getMaxBounds());
+  assert.equal(map.behaviors.isEnabled("drag"), false);
+  assert.equal(map.behaviors.isEnabled("scrollZoom"), false);
+  assert.equal(map.behaviors.isEnabled("dblClick"), true);
+
+  await act(async () => { root.unmount(); });
+}));
+
+test("React Marker syncs color and draggable after mount", withReactDom(async () => {
+  const { Marker } = await import("../dist/react/layers.js");
+  let map;
+  const root = createRoot(document.getElementById("root"));
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      onMapReady: (value) => { map = value; }
+    }, React.createElement(Marker, { position: { lat: 10, lng: 20 }, color: "#111111" })));
+  });
+
+  const markerLayer = [...map.layers][0];
+  assert.equal(markerLayer.options.color, "#111111");
+  assert.equal(markerLayer.isDraggable(), false);
+
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      onMapReady: (value) => { map = value; }
+    }, React.createElement(Marker, {
+      position: { lat: 10, lng: 20 },
+      color: "#22c55e",
+      draggable: true
+    })));
+  });
+
+  assert.equal(markerLayer.options.color, "#22c55e");
+  assert.equal(markerLayer.isDraggable(), true);
+
+  await act(async () => { root.unmount(); });
+}));
+
+test("React ObjectManager syncs clusterize after mount", withReactDom(async () => {
+  let manager;
+  const objects = [{ id: 1, coordinates: ({ lat: 10, lng: 20 }) }];
+  const root = createRoot(document.getElementById("root"));
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, { center: { lat: 10, lng: 20 }, zoom: 4, controls: false },
+      React.createElement(ObjectManager, {
+        objects,
+        clusterize: false,
+        clusterRenderer: "dom",
+        onReady: (value) => { manager = value; }
+      })
+    ));
+  });
+  assert.equal(manager.options.clusterize, false);
+
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, { center: { lat: 10, lng: 20 }, zoom: 4, controls: false },
+      React.createElement(ObjectManager, {
+        objects,
+        clusterize: true,
+        clusterRenderer: "dom",
+        onReady: (value) => { manager = value; }
+      })
+    ));
+  });
+  assert.equal(manager.options.clusterize, true);
+
+  await act(async () => { root.unmount(); });
+}));
+
+test("React Popup rebinds when options change", withReactDom(async () => {
+  const { Marker } = await import("../dist/react/layers.js");
+  const { Popup } = await import("../dist/react/overlays.js");
+  let map;
+  const root = createRoot(document.getElementById("root"));
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      onMapReady: (value) => { map = value; }
+    }, React.createElement(Marker, { position: { lat: 10, lng: 20 } },
+      React.createElement(Popup, { closeButton: true }, "Hello")
+    )));
+  });
+
+  const markerLayer = [...map.layers][0];
+  assert.equal(markerLayer.getPopup()?.options.closeButton, true);
+
+  await act(async () => {
+    root.render(React.createElement(OrihonMap, {
+      center: { lat: 10, lng: 20 },
+      zoom: 4,
+      controls: false,
+      onMapReady: (value) => { map = value; }
+    }, React.createElement(Marker, { position: { lat: 10, lng: 20 } },
+      React.createElement(Popup, { closeButton: false }, "Hello")
+    )));
+  });
+
+  assert.equal(markerLayer.getPopup()?.options.closeButton, false);
+
+  await act(async () => { root.unmount(); });
+}));

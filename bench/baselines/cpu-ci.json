@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "library": "2.1.0",
+  "profile": "ci",
+  "generatedAt": "2026-09-12T19:46:21.263Z",
+  "node": "v24.19.0",
+  "platform": "win32/x64",
+  "threshold": 0.15,
+  "absoluteSlackMs": 10,
+  "samples": 9,
+  "calibrateMs": 76.019,
+  "metric": "score",
+  "sizes": {
+    "points": 200000,
+    "patch": 10000,
+    "omIngest": 200000,
+    "omCluster": 100000,
+    "omSearch": 50000,
+    "clusterIndex": 100000,
+    "mvtFeatures": 8000,
+    "mvtVerts": 8,
+    "heatPoints": 40000,
+    "heatCols": 256,
+    "heatRows": 192,
+    "isolineLevels": 8,
+    "samples": 9
+  },
+  "fingerprint": "18fd4d49eb945290",
+  "scenarios": {
+    "points.setData": {
+      "medianMs": 1.354,
+      "p95Ms": 2.6,
+      "score": 0.017811,
+      "samples": 9
+    },
+    "points.patchPoints": {
+      "medianMs": 0.227,
+      "p95Ms": 1.329,
+      "score": 0.002986,
+      "samples": 9
+    },
+    "points.setDataAsync": {
+      "medianMs": 42.04,
+      "p95Ms": 42.827,
+      "score": 0.553019,
+      "samples": 9
+    },
+    "objectManager.ingest": {
+      "medianMs": 55.498,
+      "p95Ms": 102.497,
+      "score": 0.730053,
+      "samples": 9
+    },
+    "objectManager.clusterLayout": {
+      "medianMs": 488.329,
+      "p95Ms": 523.427,
+      "score": 6.423767,
+      "samples": 9
+    },
+    "objectManager.search": {
+      "medianMs": 3.201,
+      "p95Ms": 5.661,
+      "score": 0.042108,
+      "samples": 9
+    },
+    "cluster.index": {
+      "medianMs": 69.93,
+      "p95Ms": 94.152,
+      "score": 0.9199,
+      "samples": 9
+    },
+    "mvt.decode": {
+      "medianMs": 12.845,
+      "p95Ms": 14.586,
+      "score": 0.168971,
+      "samples": 9
+    },
+    "heat.field": {
+      "medianMs": 1.851,
+      "p95Ms": 3.541,
+      "score": 0.024349,
+      "samples": 9
+    },
+    "heat.isolines": {
+      "medianMs": 10.967,
+      "p95Ms": 15.581,
+      "score": 0.144266,
+      "samples": 9
+    }
+  },
+  "note": "Update with `npm run perf:baseline` after intentional CPU work. CI compares machine-normalized scores (medianMs / busy-loop calibrate) within PERF_THRESHOLD (default 15%)."
+}

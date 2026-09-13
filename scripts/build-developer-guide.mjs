@@ -76,7 +76,7 @@ const clearSummaries = {
   measureControl: "Добавляет инструмент измерения расстояний и площадей прямо на карте.",
   miniMap: "Добавляет обзорную мини-карту с собственной подложкой и рамкой текущего вида.",
   popupConditionMatches: "Проверяет условие описания попапа против данных объекта, не собирая сам попап.",
-  createEChartsPopupRenderer: "Создаёт renderer графиков ECharts для блоков popupContent с типом chart.",
+  createEChartsPopupRenderer: "Создаёт renderer ECharts для блоков popupChart. libraryUrl/echarts/SRI — только в factory options, не в props попапа.",
   createPMTilesProvider: "Создаёт провайдер векторных тайлов, читающий один PMTiles-архив по HTTP Range-запросам.",
   createPMTilesRasterSource: "Открывает PMTiles-архив как источник растровых тайлов для собственного конвейера отрисовки.",
   deserializePMTilesDirectory: "Разбирает каталог PMTiles из varint-потока в список записей о тайлах.",

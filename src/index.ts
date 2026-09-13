@@ -10,6 +10,8 @@ export { CRS, CRSCompatibilityError } from "./crs.js";
 export { GridLayer } from "./layers/grid-layer.js";
 export { TileLayer, tileLayer } from "./layers/tile-layer.js";
 export { GPUTileLayer } from "./layers/gpu-tile-layer.js";
+export { WebGlContextOwner, watchGpuDeviceLost } from "./gpu-resource-owner.js";
+export type { GpuLifecycleState, WebGlContextOwnerHooks, GpuDeviceLostHandle } from "./gpu-resource-owner.js";
 export { WTinyLfu, CountMinSketch, wTinyLfu } from "./services/tiny-lfu.js";
 export { WMSTileLayer, wmsTileLayer } from "./layers/wms-tile-layer.js";
 export { WMTSTileLayer, wmtsTileLayer, createWMTSFromCapabilities } from "./layers/wmts-tile-layer.js";

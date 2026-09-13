@@ -104,3 +104,91 @@ test("ECharts adapter remains optional and disposes its instance", async () => {
   assert.equal(disposed, 1);
   delete globalThis.echarts;
 });
+
+test("ECharts adapter rejects popup props.libraryUrl (trust boundary)", async () => {
+  installDom();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const render = createEChartsPopupRenderer({
+    libraryUrl: "https://cdn.example/echarts.min.js",
+    allowedLibraryOrigins: ["https://cdn.example"]
+  });
+  await assert.rejects(
+    () => render(
+      host,
+      { type: "popupChart", props: { libraryUrl: "https://evil.example/pwn.js", values: "1" } },
+      { overlay: {}, map: null, latlng: null }
+    ),
+    /props\.libraryUrl is not allowed/
+  );
+  assert.equal(document.querySelector("script[data-orihon-chart-library]"), null);
+});
+
+test("ECharts adapter loads only factory libraryUrl with SRI and origin allowlist", async () => {
+  const dom = installDom();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const render = createEChartsPopupRenderer({
+    libraryUrl: "https://cdn.example/echarts.min.js",
+    allowedLibraryOrigins: ["https://cdn.example"],
+    integrity: "sha384-test",
+    crossOrigin: "anonymous"
+  });
+
+  const pending = render(host, { type: "popupChart", props: { values: "1,2", labels: "a,b" } }, { overlay: {}, map: null, latlng: null });
+  await Promise.resolve();
+  const script = document.querySelector("script[data-orihon-chart-library]");
+  assert.ok(script);
+  assert.equal(script.getAttribute("src"), "https://cdn.example/echarts.min.js");
+  assert.equal(script.getAttribute("integrity"), "sha384-test");
+  assert.equal(script.crossOrigin, "anonymous");
+
+  globalThis.echarts = {
+    init() {
+      return { setOption() {}, resize() {}, isDisposed: () => false, dispose() {} };
+    }
+  };
+  script.dispatchEvent(new dom.window.Event("load"));
+  const cleanup = await pending;
+  cleanup?.();
+  delete globalThis.echarts;
+  dom.window.close();
+});
+
+test("ECharts adapter rejects libraryUrl outside allowedLibraryOrigins", async () => {
+  installDom();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const render = createEChartsPopupRenderer({
+    libraryUrl: "https://evil.example/echarts.js",
+    allowedLibraryOrigins: ["https://cdn.example"]
+  });
+  await assert.rejects(
+    () => render(host, { type: "popupChart", props: { values: "1" } }, { overlay: {}, map: null, latlng: null }),
+    /origin is not allowed/
+  );
+});
+
+test("ECharts adapter accepts an already-imported echarts object", async () => {
+  installDom();
+  let disposed = 0;
+  let inits = 0;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const render = createEChartsPopupRenderer({
+    echarts: {
+      init() {
+        inits += 1;
+        return { setOption() {}, resize() {}, isDisposed: () => false, dispose() { disposed += 1; } };
+      }
+    },
+    // Must be ignored when echarts is provided — prove by using a disallowed URL.
+    libraryUrl: "https://evil.example/should-not-load.js",
+    allowedLibraryOrigins: ["https://cdn.example"]
+  });
+  const cleanup = await render(host, { type: "popupChart", props: { values: "3" } }, { overlay: {}, map: null, latlng: null });
+  assert.equal(inits, 1);
+  assert.equal(document.querySelector("script[data-orihon-chart-library]"), null);
+  cleanup();
+  assert.equal(disposed, 1);
+});

@@ -8,6 +8,7 @@ import {
   type ObjectManagerOptions
 } from "../services/object-manager.js";
 import { useMap } from "./context.js";
+import { useSyncedProp } from "./sync.js";
 
 export interface ObjectManagerProps extends ObjectManagerOptions {
   objects: Array<ManagedObject & { id: ObjectId }>;
@@ -15,18 +16,35 @@ export interface ObjectManagerProps extends ObjectManagerOptions {
   onReady?: (manager: OrihonObjectManager) => void;
 }
 
-export function ObjectManager({ objects, filter = null, onReady, ...options }: ObjectManagerProps) {
+export function ObjectManager({
+  objects,
+  filter = null,
+  onReady,
+  style,
+  clusterize,
+  clusterRadiusPixels,
+  visualization,
+  ...options
+}: ObjectManagerProps) {
   const map = useMap();
   const [manager, setManager] = useState<OrihonObjectManager | null>(null);
   const previous = useRef(new globalThis.Map<ObjectId, ManagedObject>());
 
   useLayoutEffect(() => {
-    const instance = objectManager(options);
+    const instance = objectManager({
+      style,
+      clusterize,
+      clusterRadiusPixels,
+      visualization,
+      ...options
+    });
     instance.addTo(map);
     previous.current = new globalThis.Map();
     setManager(instance);
     onReady?.(instance);
     return () => { instance.destroy(); };
+    // Create-time options beyond the synced setters stay on the first snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- manager lifetime is map-scoped
   }, [map]);
 
   useLayoutEffect(() => {
@@ -46,6 +64,29 @@ export function ObjectManager({ objects, filter = null, onReady, ...options }: O
     previous.current = next;
   }, [manager, objects]);
 
-  useLayoutEffect(() => { if (manager && !manager.isDestroyed) manager.setFilter(filter); }, [manager, filter]);
+  useLayoutEffect(() => {
+    if (manager && !manager.isDestroyed) manager.setFilter(filter);
+  }, [manager, filter]);
+
+  useSyncedProp(manager, () => {
+    if (manager && !manager.isDestroyed && style !== undefined) manager.setStyle(style);
+  }, [style]);
+
+  useSyncedProp(manager, () => {
+    if (manager && !manager.isDestroyed && clusterize !== undefined) manager.setClusterize(clusterize);
+  }, [clusterize]);
+
+  useSyncedProp(manager, () => {
+    if (manager && !manager.isDestroyed && clusterRadiusPixels !== undefined) {
+      manager.setClusterRadiusPixels(clusterRadiusPixels);
+    }
+  }, [clusterRadiusPixels]);
+
+  useSyncedProp(manager, () => {
+    if (manager && !manager.isDestroyed && visualization !== undefined) {
+      manager.setVisualization(visualization);
+    }
+  }, [visualization]);
+
   return null;
 }

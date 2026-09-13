@@ -242,7 +242,7 @@ plan.setRotation(0);
 ```
 | `popupContent(spec, options)` | popup-content | Build popup content from blocks instead of HTML |
 | `sanitizePopupHtml(html)` | popup-content | Safe fragment from untrusted HTML |
-| `createEChartsPopupRenderer(options)` | popup-content | Chart blocks inside a popup |
+| `createEChartsPopupRenderer(options)` | popup-content | Chart blocks; `libraryUrl` / `echarts` / SRI only from factory options |
 | `popupConditionMatches(condition, context)` | popup-content | Evaluate a content condition |
 
 Every interactive layer carries the same popup and tooltip grammar:
@@ -440,15 +440,26 @@ Modes are `point`, `polyline`, `polygon`, `rectangle`, `circle`, `edit`, `delete
 ```jsx
 import { Map, TileLayer, Marker, Popup } from "orihon/react";
 
-<Map center={{ lat: 52.52, lng: 13.405 }} zoom={12}>
+<Map center={{ lat: 52.52, lng: 13.405 }} zoom={12} maxZoom={18}>
   <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-  <Marker position={{ lat: 52.52, lng: 13.405 }}>
+  <Marker position={{ lat: 52.52, lng: 13.405 }} color="#e11d48">
     <Popup>Berlin</Popup>
   </Marker>
 </Map>
 ```
 
 Components: `Map` `TileLayer` `Marker` `Popup` `Tooltip` `GeoJSON` `FeatureGroup` `ObjectManager`. Hooks: `useMap()` for the map instance inside a child, `useMapEvent(type, handler)` for a typed subscription that cleans itself up.
+
+Props are declarative: changing them after mount calls the matching core `set*` (for example `<Map maxZoom={n} />` → `setMaxZoom`, `<Marker color />` → `setAppearance`). Create-time identity that cannot be swapped live is **recreate-required** — remount with a React `key`.
+
+| Component | Synced from props | Recreate-required |
+| --- | --- | --- |
+| `Map` | `center`, `zoom`, `locale`, `minZoom`, `maxZoom`, `maxBounds`, `maxBoundsViscosity`, `zoomSnap`, `wheelZoomStep`, inertia*, `zoomAnimationDurationMs`, `controls`, `ariaLabel`, `keyboard`, `keyboardPanDelta`, `behaviors`, `onClick` | `crs` |
+| `Marker` | `position`, `opacity`, appearance (`color`, `shape`, …), `icon`, `content`, `draggable`, `interactive`, `title`, `ariaLabel`, `className`, `rotation`, `zIndexOffset`, `keyboard` | — |
+| `TileLayer` | `url`, `opacity` | other tile options (`attribution`, zoom bounds, …) — pass a new `key` |
+| `GeoJSON` | `data`, `style` | `onEachFeature`, `pointToLayer`, `filter`, `renderer` (auto-recreates the layer) |
+| `Popup` / `Tooltip` | `children` and options (rebind) | — |
+| `ObjectManager` | `objects` (id-diff), `filter`, `style`, `clusterize`, `clusterRadiusPixels`, `visualization` | other create-time manager options |
 
 React and React DOM are optional peer dependencies, so applications that do not use React never pull them in. A runnable project lives in [`examples/react`](../examples/react).
 

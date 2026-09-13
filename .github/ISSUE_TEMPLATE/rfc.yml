@@ -1,0 +1,53 @@
+name: RFC — API or packaging change
+description: Propose a public API, breaking change, or new entry point
+title: "[rfc] "
+labels: ["rfc"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this before a large PR. Small bugfixes do not need an RFC.
+  - type: input
+    id: summary
+    attributes:
+      label: One-line summary
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Who hurts today, and what becomes easier?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Public surface sketch (types/signatures), defaults, and non-goals.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility
+      description: SemVer impact, migration notes, recreate-required React props, size budget.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Roadmap constraints acknowledged
+      options:
+        - label: Stays within gzip / entry-splitting rules in docs/ROADMAP.md
+          required: true
+        - label: No prototype patching; public entries only
+          required: true
+        - label: Safe-by-default content model (no new innerHTML footguns)
+          required: true

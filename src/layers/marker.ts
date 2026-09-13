@@ -343,6 +343,80 @@ export class Marker extends InteractiveLayer<ResolvedMarkerOptions, MarkerEventM
     return this;
   }
 
+  setTitle(title: string): this {
+    const next = String(title ?? "");
+    if (this.options.title === next) return this;
+    this.writableOptions.title = next;
+    if (this.el) {
+      this.el.title = next;
+      if (this.options.interactive || this.options.draggable) {
+        this.el.setAttribute("aria-label", this.options.ariaLabel || next || "Map marker");
+      }
+    }
+    return this;
+  }
+
+  setAriaLabel(label: string): this {
+    const next = String(label ?? "");
+    if (this.options.ariaLabel === next) return this;
+    this.writableOptions.ariaLabel = next;
+    if (this.el && (this.options.interactive || this.options.draggable)) {
+      this.el.setAttribute("aria-label", next || this.options.title || "Map marker");
+    }
+    return this;
+  }
+
+  setClassName(className: string): this {
+    const next = String(className ?? "");
+    if (this.options.className === next) return this;
+    this.writableOptions.className = next;
+    if (this.el) {
+      const dragging = this.el.classList.contains("oh-marker-dragging");
+      this.el.className = `oh-marker ${next}`.trim();
+      if (this.options.draggable) this.el.classList.add("oh-marker-draggable");
+      if (dragging) this.el.classList.add("oh-marker-dragging");
+      if (this.options.icon) this.el.classList.add("oh-marker-custom");
+    }
+    return this;
+  }
+
+  setRotation(degrees: number): this {
+    const next = Number(degrees);
+    if (!Number.isFinite(next)) throw new TypeError("Marker rotation must be a finite number");
+    if (this.options.rotation === next) return this;
+    this.writableOptions.rotation = next;
+    this.render();
+    return this;
+  }
+
+  setRotationOrigin(origin: string): this {
+    const next = String(origin ?? "");
+    this.#customRotationOrigin = true;
+    if (this.options.rotationOrigin === next) return this;
+    this.writableOptions.rotationOrigin = next;
+    this.render();
+    return this;
+  }
+
+  setAnchor(anchor: [number, number]): this {
+    const x = Number(anchor?.[0]);
+    const y = Number(anchor?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new TypeError("Marker anchor must be a [x, y] pair of finite numbers");
+    this.#customAnchor = true;
+    if (this.options.anchor[0] === x && this.options.anchor[1] === y) return this;
+    this.writableOptions.anchor = [x, y];
+    this.render();
+    return this;
+  }
+
+  setKeyboard(enabled: boolean): this {
+    const next = Boolean(enabled);
+    if (this.options.keyboard === next) return this;
+    this.writableOptions.keyboard = next;
+    if (this.el) this.el.tabIndex = next ? 0 : -1;
+    return this;
+  }
+
   override render(): void {
     if (!this.map || !this.el) return;
     const projected = this.map.latLngToLayerPoint(this.position);

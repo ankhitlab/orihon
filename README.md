@@ -441,6 +441,9 @@ Start with the guide that matches what you are doing:
 - [Migrating from Leaflet](./docs/MIGRATION-LEAFLET.md)
 - [Migrating to the next major](./docs/MIGRATION-NEXT-MAJOR.md)
 - [Security model](./docs/SECURITY.md)
+- [Support and compatibility](./docs/SUPPORT.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Security policy / vulnerability reporting](./SECURITY.md)
 - [Developer Guide](./docs/developer-guide/README.md) — searchable function catalogue with runnable examples, generated locally by `npm run demo:docs`
 - [Examples hub](https://ankhitlab.github.io/orihon/)
 - [Plugin development](./docs/PLUGINS.md)

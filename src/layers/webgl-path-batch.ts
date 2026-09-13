@@ -7,6 +7,7 @@ import { type LayerOptions, type QueryHit, type ResolvedQueryOptions } from "../
 import type { Orihon } from "../map.js";
 import { assertMercator } from "../crs.js";
 import { compileShader, linkProgram, parseCssColor, type RgbColor } from "../webgl-utils.js";
+import { WebGlContextOwner } from "../gpu-resource-owner.js";
 import { ringContainsPoint, segmentDistance, type PathOptions } from "./vector.js";
 import { rejectStyleAliases } from "../style-contract.js";
 
@@ -120,6 +121,7 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
   private _redrawFrame = 0;
   private _settleTimer: ReturnType<typeof setTimeout> | null = null;
   private color: RgbColor;
+  readonly #gpuOwner = new WebGlContextOwner();
   private _minLat = Number.POSITIVE_INFINITY;
   private _maxLat = Number.NEGATIVE_INFINITY;
   private _minLng = Number.POSITIVE_INFINITY;
@@ -333,7 +335,12 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
       });
     if (this.gl && this.#initWebGL()) {
       this.renderer = "webgl";
+      this.#gpuOwner.attach(this.canvas, {
+        onLost: () => this.#handleGpuLost(),
+        onRestored: () => this.#handleGpuRestored()
+      }, this.gl);
     } else if (this.options.fallbackCanvas !== false) {
+      this.#gpuOwner.detach();
       this.#disposeGL();
       // Same canvas cannot acquire a 2D context after WebGL — replace the element.
       this.canvas.remove();
@@ -393,6 +400,7 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
       this._redrawFrame = 0;
     }
     this.#clearSettleTimer();
+    this.#gpuOwner.detach();
     this.#disposeGL();
     if (this.canvas) {
       this.canvas.width = 0;
@@ -677,6 +685,51 @@ export class WebGLPathBatch extends InteractiveLayer<ResolvedOptions> {
     }
     ctx.stroke();
     ctx.globalAlpha = 1;
+  }
+
+  #handleGpuLost(): void {
+    this.quadBuffer = null;
+    this.instanceBuffer = null;
+    this.program = null;
+    this.locs = null;
+    this.ext = null;
+    this.gl = null;
+    this._gpuBytes = 0;
+    this._attribsBound = false;
+    this.renderer = "none";
+  }
+
+  #handleGpuRestored(): boolean {
+    if (!this.canvas || !this.map) return false;
+    this.gl =
+      this.canvas.getContext("webgl", {
+        antialias: false,
+        alpha: true,
+        depth: false,
+        stencil: false,
+        premultipliedAlpha: true,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: false,
+        desynchronized: true
+      } as WebGLContextAttributes) ||
+      this.canvas.getContext("webgl", {
+        antialias: false,
+        alpha: true,
+        depth: false,
+        stencil: false,
+        premultipliedAlpha: true,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: false
+      });
+    if (!this.gl || !this.#initWebGL()) {
+      this.gl = null;
+      return false;
+    }
+    this.renderer = "webgl";
+    this._bufferDirty = true;
+    this._forceGpu = true;
+    this.render();
+    return true;
   }
 
   #disposeGL(): void {

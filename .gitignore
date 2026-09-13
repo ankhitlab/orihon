@@ -49,3 +49,6 @@ REVIEW.md
 api-dx-inventory.json
 tmp-rzd-frames/
 design/brand-concepts/
+
+# Local perf-gate runs (committed baselines live in bench/baselines/).
+bench/results/

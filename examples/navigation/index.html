@@ -419,9 +419,9 @@ function mapPosition(value) { return Array.isArray(value) ? { lat: value[0], lng
 function mapPositions(value) { return Array.isArray(value) ? (typeof value[0] === "number" ? mapPosition(value) : value.map(mapPositions)) : value; }
 
       const ORIHON_CDN =
-        "https://cdn.jsdelivr.net/npm/orihon@1.0.5/dist/orihon.esm.js";
+        "https://cdn.jsdelivr.net/npm/orihon@2.1.0/dist/orihon.esm.js";
       const ORIHON_CDN_CSS =
-        "https://cdn.jsdelivr.net/npm/orihon@1.0.5/dist/orihon.css";
+        "https://cdn.jsdelivr.net/npm/orihon@2.1.0/dist/orihon.css";
       const OSRM_HOST = "https://router.project-osrm.org";
 
       const DEMO_A = { lat: 55.7558, lng: 37.6173 };

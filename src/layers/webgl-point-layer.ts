@@ -15,6 +15,7 @@ import {
   type AsyncBatchOptions
 } from "../services/async-batch.js";
 import { compileShader, linkProgram, parseCssColor, type RgbColor } from "../webgl-utils.js";
+import { WebGlContextOwner } from "../gpu-resource-owner.js";
 
 export type WebGLPointInput = LatLngLike | { coordinates?: LatLngLike; latlng?: LatLngLike; lat?: number; lng?: number };
 
@@ -120,6 +121,8 @@ export interface WebGLPointLayerStats {
 export interface WebGLPointEventMap {
   click: { originalEvent: MouseEvent | PointerEvent; latlng: LatLngLike; containerPoint: { x: number; y: number }; index: number; data: WebGLPointInput | undefined };
   hover: { originalEvent: MouseEvent; latlng: LatLngLike | null; containerPoint: { x: number; y: number } | null; index: number; data: WebGLPointInput | null | undefined };
+  gpulost: { reason: "webglcontextlost" };
+  gpurestored: { ok: boolean };
 }
 
 /**
@@ -253,6 +256,12 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
   private _paintedPad = 0;
   private _lastGpuMs = 0;
   private _settleTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly #gpuOwner = new WebGlContextOwner();
+
+  /** GPU lifecycle for diagnostics and tests (`active` | `lost` | `rebuilding` | …). */
+  get gpuState(): string {
+    return this.#gpuOwner.state;
+  }
 
   /**
    * Creates a point layer. Initial `points` are applied synchronously via `setData`.
@@ -299,6 +308,10 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
     if (this.gl) {
       this.renderer = "webgl";
       this.#initWebGL();
+      this.#gpuOwner.attach(this.canvas, {
+        onLost: () => this.#handleGpuLost(),
+        onRestored: () => this.#handleGpuRestored()
+      }, this.gl);
     } else if (this.options.fallbackCanvas && this.canvas.getContext("2d")) {
       this.renderer = "canvas";
     } else {
@@ -310,6 +323,7 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
 
   override onRemove(): void {
     this.#clearSettleTimer();
+    this.#gpuOwner.detach();
     if (this.gl) {
       try {
         if (this.buffer) this.gl.deleteBuffer(this.buffer);
@@ -1353,6 +1367,61 @@ export class WebGLPointLayer extends InteractiveLayer<ResolvedWebGLPointLayerOpt
       if (sizes[i] > maxSize) maxSize = sizes[i];
     }
     this._maxVertexSize = maxSize;
+  }
+
+  /**
+   * Drop GPU object handles after context loss. CPU packs stay intact so
+   * {@link #handleGpuRestored} can rebuild without re-ingesting points.
+   */
+  #handleGpuLost(): void {
+    this.buffer = null;
+    this.colorBuffer = null;
+    this.sizeBuffer = null;
+    this.program = null;
+    this.gl = null;
+    this._glLocations = null;
+    this._gpuMercBytes = 0;
+    this._gpuColorBytes = 0;
+    this._gpuSizeBytes = 0;
+    this._encodedCount = 0;
+    this.renderer = "none";
+    this.emit("gpulost", { reason: "webglcontextlost" });
+  }
+
+  #handleGpuRestored(): boolean {
+    if (!this.canvas || !this.map) return false;
+    this.gl = this.canvas.getContext("webgl", {
+      antialias: false,
+      alpha: true,
+      depth: false,
+      stencil: false,
+      powerPreference: "high-performance",
+      premultipliedAlpha: true
+    });
+    if (!this.gl) {
+      this.emit("gpurestored", { ok: false });
+      return false;
+    }
+    this.#initWebGL();
+    this.renderer = "webgl";
+    this._bufferDirty = true;
+    this._colorDirty = true;
+    this._sizeDirty = true;
+    this._forceGpu = true;
+    this._refZoom = Number.NaN;
+    this.render();
+    this.emit("gpurestored", { ok: true });
+    return true;
+  }
+
+  /** @internal Simulate GPU context loss (WEBGL_lose_context). */
+  loseContextForTest(): void {
+    this.#gpuOwner.loseForTest();
+  }
+
+  /** @internal Restore after {@link loseContextForTest}. */
+  restoreContextForTest(): void {
+    this.#gpuOwner.restoreForTest();
   }
 
   #initWebGL(): void {

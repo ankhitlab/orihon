@@ -4,7 +4,7 @@ A plugin should extend a documented Orihon class or return a regular `Layer`/`Co
 
 ## Rules
 
-- Declare `Orihon` as a peer dependency and test against the lowest and newest supported 1.x versions.
+- Declare `Orihon` as a peer dependency and test against the lowest and newest supported 2.x versions.
 - Import from `Orihon`, `Orihon/core` or `Orihon/standard` only.
 - Allocate DOM or browser resources in `onAdd` and release all of them in `onRemove`.
 - Keep network providers injectable and accept `AbortSignal` for cancellable work.

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ankhitlab/orihon/security/advisories/new
+    about: Private report for exploitable issues — do not file a public bug.
+  - name: GitHub Discussions
+    url: https://github.com/ankhitlab/orihon/discussions
+    about: Questions, ideas, and showcases that are not concrete bugs.
+  - name: Documentation and support policy
+    url: https://github.com/ankhitlab/orihon/blob/master/docs/SUPPORT.md
+    about: Compatibility expectations and what happens when you find a bug later.

@@ -18,7 +18,7 @@
   "use strict";
 
   var script = document.currentScript;
-  var VERSION = "2.0.1";
+  var VERSION = "2.1.0";
   var CDN = "https://cdn.jsdelivr.net/npm/orihon@" + VERSION + "/dist/";
 
   // assets/boot.js -> examples/live/ -> <repo>/dist/
@@ -26,7 +26,7 @@
   var localDist = new URL("../../dist/", siteRoot).href;
 
   /* Package specifier -> file inside dist/.
-     Published 2.0.1 ships the modular tree but not every aggregate entry, so a
+     Published 2.x ships the modular tree but not every aggregate entry, so a
      couple of specifiers resolve to a different file on the CDN. Same code. */
   var LOCAL = {
     "orihon": "standard.js",

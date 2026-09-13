@@ -1,0 +1,57 @@
+name: Bug report
+description: Incorrect behaviour with a minimal reproduction
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issues → [private advisory](https://github.com/ankhitlab/orihon/security/advisories/new), not this form.
+  - type: input
+    id: version
+    attributes:
+      label: Orihon version
+      description: Exact package or CDN pin (e.g. 2.1.0).
+      placeholder: 2.1.0
+    validations:
+      required: true
+  - type: input
+    id: entry
+    attributes:
+      label: Entry / import
+      description: Which package entry are you using?
+      placeholder: orihon/easy · orihon · orihon/react · orihon/advanced
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser or Node version, OS if relevant.
+      placeholder: Chrome 131 · Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Smallest HTML/JS, sandbox link, or failing test sketch.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra context
+      description: Screenshots, stack traces, workarounds.

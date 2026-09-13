@@ -6,6 +6,7 @@ import { type LayerOptions, type QueryHit, type ResolvedQueryOptions } from "../
 import type { Orihon } from "../map.js";
 import { assertMercator } from "../crs.js";
 import { compileShader, linkProgram, parseCssColor } from "../webgl-utils.js";
+import { WebGlContextOwner } from "../gpu-resource-owner.js";
 import type { ObjectIconAtlas, PackedIcon } from "../services/object-icon-atlas.js";
 
 export interface WebGLSymbolInstance {
@@ -78,6 +79,7 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
   private readonly idToIndex = new Map<string | number, number>();
   private readonly patched = new Set<number>();
   private _interactionUnsub: (() => void) | null = null;
+  readonly #gpuOwner = new WebGlContextOwner();
   private fallbackIcon: PackedIcon = {
     name: "",
     u0: 0,
@@ -174,6 +176,10 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     if (this.gl) {
       this.renderer = "webgl";
       this.#initGl();
+      this.#gpuOwner.attach(this.canvas, {
+        onLost: () => this.#handleGpuLost(),
+        onRestored: () => this.#handleGpuRestored()
+      }, this.gl);
     } else if (this.options.fallbackCanvas) {
       this.renderer = "canvas";
     } else {
@@ -184,6 +190,7 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
   }
 
   override onRemove(): void {
+    this.#gpuOwner.detach();
     if (this.gl) {
       try {
         if (this.quadBuffer) this.gl.deleteBuffer(this.quadBuffer);
@@ -265,6 +272,32 @@ export class WebGLSymbolLayer extends InteractiveLayer<Resolved, WebGLSymbolEven
     data[o + 13] = inst.tint[3] * (Number.isFinite(inst.opacity) ? inst.opacity : 1);
     data[o + 14] = Number(inst.startTimeMs) || 0;
     data[o + 15] = Math.max(0, Number(inst.durationMs) || 0);
+  }
+
+  #handleGpuLost(): void {
+    this.gl = null;
+    this.program = null;
+    this.locs = null;
+    this.quadBuffer = null;
+    this.instanceBuffer = null;
+    this.texture = null;
+    this.renderer = "none";
+  }
+
+  #handleGpuRestored(): boolean {
+    if (!this.canvas || !this.map) return false;
+    this.gl = this.canvas.getContext("webgl", {
+      antialias: false,
+      alpha: true,
+      premultipliedAlpha: true
+    });
+    if (!this.gl) return false;
+    this.#initGl();
+    this.renderer = "webgl";
+    this.dirty = true;
+    this.atlasVersion = -1;
+    this.render();
+    return true;
   }
 
   #initGl(): void {

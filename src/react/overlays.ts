@@ -15,9 +15,27 @@ function contentNode(children: ReactNode): { content: Node | string | number | n
 
 export interface PopupProps extends PopupOptions { children?: ReactNode; }
 
-export function Popup({ children, ...options }: PopupProps) {
+export function Popup({
+  children,
+  offset,
+  className,
+  pane,
+  attribution,
+  closeButton,
+  autoClose,
+  closeOnClick,
+  autoPan,
+  autoPanPadding,
+  keepInView,
+  ariaLabel,
+  locale
+}: PopupProps) {
   const layer = useContext(LayerContext);
   const root = useRef<Root | null>(null);
+  const options: PopupOptions = {
+    offset, className, pane, attribution,
+    closeButton, autoClose, closeOnClick, autoPan, autoPanPadding, keepInView, ariaLabel, locale
+  };
   useLayoutEffect(() => {
     if (!layer) throw new Error("<Popup> must be a child of a layer component");
     const rendered = contentNode(children);
@@ -28,14 +46,28 @@ export function Popup({ children, ...options }: PopupProps) {
       root.current?.unmount();
       root.current = null;
     };
-  }, [layer, children]);
+  }, [
+    layer, children,
+    offset, className, pane, attribution,
+    closeButton, autoClose, closeOnClick, autoPan, autoPanPadding, keepInView, ariaLabel, locale
+  ]);
   return null;
 }
 
 export interface TooltipProps extends TooltipOptions { children?: ReactNode; }
 
-export function Tooltip({ children, ...options }: TooltipProps) {
+export function Tooltip({
+  children,
+  offset,
+  className,
+  pane,
+  attribution,
+  permanent,
+  direction,
+  opacity
+}: TooltipProps) {
   const layer = useContext(LayerContext);
+  const options: TooltipOptions = { offset, className, pane, attribution, permanent, direction, opacity };
   useLayoutEffect(() => {
     if (!layer) throw new Error("<Tooltip> must be a child of a layer component");
     const rendered = contentNode(children);
@@ -44,6 +76,6 @@ export function Tooltip({ children, ...options }: TooltipProps) {
       layer.unbindTooltip();
       rendered.root?.unmount();
     };
-  }, [layer, children]);
+  }, [layer, children, offset, className, pane, attribution, permanent, direction, opacity]);
   return null;
 }

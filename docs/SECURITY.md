@@ -26,7 +26,27 @@ This page is the contract. Feature docs describe *how* to use an API; this page 
 
 Cleanup runs when content is replaced, the overlay closes, or the layer is destroyed. Rejected async factories emit `contenterror`. Stale async results (after a newer generation) are ignored so late network responses cannot overwrite newer UI.
 
-The optional `popupContent({ children: [{ type: "popupHtml" }] })` block is the only HTML-string renderer. Its sanitizer removes executable/embedded elements, forms and active controls, inline styles, event attributes, `srcdoc`, `srcset`, unsafe URL schemes (including control-character-obfuscated schemes), and SVG/MathML. Safe `http:`, `https:`, `mailto:`, `tel:`, relative and fragment links remain; `_blank` links receive `noopener noreferrer`. Treat `createEChartsPopupRenderer({ libraryUrl })` as trusted application configuration because it intentionally loads a script.
+The optional `popupContent({ children: [{ type: "popupHtml" }] })` block is the only HTML-string renderer. Its sanitizer removes executable/embedded elements, forms and active controls, inline styles, event attributes, `srcdoc`, `srcset`, unsafe URL schemes (including control-character-obfuscated schemes), and SVG/MathML. Safe `http:`, `https:`, `mailto:`, `tel:`, relative and fragment links remain; `_blank` links receive `noopener noreferrer`.
+
+`createEChartsPopupRenderer` may inject a `<script>` for ECharts. That is trusted **application** configuration only:
+
+```js
+import { createEChartsPopupRenderer, popupContent } from "orihon/popup-content";
+import * as echarts from "echarts";
+
+// Preferred: pass an already-imported module (no script tag).
+const chartRenderer = createEChartsPopupRenderer({ echarts });
+
+// Or pin a CDN URL with origin allowlist + SRI — never from popup props / GeoJSON / AI specs.
+const chartRendererFromCdn = createEChartsPopupRenderer({
+  libraryUrl: "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js",
+  allowedLibraryOrigins: ["https://cdn.jsdelivr.net"],
+  integrity: "sha384-…",
+  crossOrigin: "anonymous"
+});
+```
+
+`popupChart` props must not include `libraryUrl`; the renderer rejects that field so untrusted popup specifications cannot choose the script origin.
 
 ```js
 // Safe by default — treated as text, not HTML
@@ -134,3 +154,5 @@ The goal is a secure **default API surface**: HTML-string map UIs should not sil
 
 - [API reference](API.md) — popup content types and overlay lifecycle
 - [Plugin development](PLUGINS.md) — stay on public entries; do not patch prototypes
+- [Support and compatibility](SUPPORT.md) — what to expect when you report a bug later
+- [Vulnerability reporting](../SECURITY.md) — private advisories, not public issues

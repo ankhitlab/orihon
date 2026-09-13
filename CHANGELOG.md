@@ -4,6 +4,32 @@
 
 ## 2.1.0 — 2026-09-12
 
+- **ECharts popup trust boundary.** `createEChartsPopupRenderer` no longer reads
+  `props.libraryUrl` from popup blocks (that field is rejected). Script loading is
+  only from factory options: `libraryUrl`, optional `allowedLibraryOrigins`, SRI
+  `integrity` / `crossOrigin`, or an already-imported `echarts` object. Documents
+  the contract in `docs/SECURITY.md`.
+- **CPU performance CI gate.** `npm run perf` / `perf:ci` run a fixed Node suite
+  (points ingest/patch/async, ObjectManager ingest/cluster/search, cluster index,
+  MVT decode, heat field/isolines), take the median of several samples, normalize
+  against a busy-loop calibrate, and fail when a scenario score regresses beyond
+  ~15% vs `bench/baselines/cpu-*.json`. GPU paint benches stay on dedicated runners /
+  `bench-compare`. See `bench/README.md`.
+- **GPU context recovery.** WebGL layers listen for `webglcontextlost` /
+  `webglcontextrestored` via a shared `WebGlContextOwner` state machine
+  (`active → lost → rebuilding → active|failed`), rebuild programs/buffers from
+  retained CPU packs, and emit `gpulost` / `gpurestored` on point layers. WebGPU
+  tile and heat paths watch `device.lost` and reacquire or fall back. Covered by
+  unit tests and a `WEBGL_lose_context` browser harness.
+- **Docs and community onboarding.** `npm run docs:versions` (wired into `docs:check`)
+  keeps `package.json`, CHANGELOG, CDN example pins, and `create-orihon-app` aligned.
+  ROADMAP banner updated for 2.x. Added CONTRIBUTING, root SECURITY policy, SUPPORT
+  compatibility expectations, and GitHub issue/PR templates (bug, performance, RFC).
+- **Declarative React bindings.** `Map` syncs zoom limits, bounds, behaviors, controls,
+  locale and related options after mount; `Marker` syncs appearance, drag/interaction,
+  title and rotation. `GeoJSON` recreates when builder callbacks change; `Popup`/`Tooltip`
+  rebind options; `ObjectManager` syncs `style` / cluster / visualization. Sync matrix in
+  `docs/API.md`. Core gains the matching `set*` helpers (`setBehaviors`, `setControls`, …).
 - **WebGL points: recommended `load()`.** `WebGLPointLayer.load()` routes degree arrays,
   async iterables and packed `{ latlng, mercator }` buffers to the right ingest path, so
   callers no longer choose between `setData`, `setDataAsync` and `setPackedData`. Those
